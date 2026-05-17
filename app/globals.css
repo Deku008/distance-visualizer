@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
 
 :root {
   --background: #ffffff;
@@ -22,5 +23,157 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.leaflet-container {
+  background: #dbeafe;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.leaflet-dark .leaflet-tile {
+  filter: invert(0.93) hue-rotate(180deg) saturate(0.72) brightness(0.74) contrast(1.08);
+}
+
+.leaflet-dark .leaflet-container {
+  background: #020617;
+}
+
+.leaflet-control-attribution {
+  border-radius: 8px 0 0 0;
+  color: #475569;
+  font-size: 11px;
+}
+
+.labeled-route-marker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+}
+
+.route-marker {
+  display: grid;
+  flex: 0 0 auto;
+  height: 34px;
+  width: 34px;
+  place-items: center;
+  border: 3px solid #ffffff;
+  border-radius: 999px 999px 999px 4px;
+  background: var(--marker-color);
+  box-shadow: 0 14px 28px rgb(15 23 42 / 0.28);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  transform: rotate(-45deg);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.route-marker span {
+  transform: rotate(45deg);
+}
+
+.route-marker-dark {
+  border-color: #0f172a;
+  box-shadow: 0 16px 32px rgb(0 0 0 / 0.42);
+}
+
+.route-marker-label {
+  max-width: 118px;
+  overflow: hidden;
+  border: 1px solid rgb(226 232 240 / 0.95);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.94);
+  box-shadow: 0 12px 24px rgb(15 23 42 / 0.16);
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 8px 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-marker-label-dark {
+  border-color: rgb(255 255 255 / 0.12);
+  background: rgb(15 23 42 / 0.92);
+  color: #f8fafc;
+  box-shadow: 0 16px 28px rgb(0 0 0 / 0.35);
+}
+
+.animated-route-line {
+  stroke-dasharray: 12 12;
+  stroke-linecap: round;
+  filter: drop-shadow(0 8px 10px rgb(15 23 42 / 0.25));
+  animation: route-draw 900ms ease-out both, route-flow 1.8s linear infinite 900ms;
+}
+
+.preview-route-line {
+  stroke-dasharray: 6 10;
+  filter: drop-shadow(0 10px 14px rgb(37 99 235 / 0.2));
+}
+
+@keyframes route-draw {
+  from {
+    stroke-dashoffset: 260;
+    opacity: 0;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+@keyframes route-flow {
+  from {
+    stroke-dashoffset: 24;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-startup-fade {
+  animation: startup-fade 1.15s ease forwards;
+}
+
+.animate-startup-pulse {
+  animation: startup-pulse 1s ease-in-out infinite alternate;
+}
+
+.animate-mobile-sidebar {
+  animation: mobile-sidebar 260ms ease both;
+}
+
+@keyframes startup-fade {
+  0%,
+  70% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes startup-pulse {
+  from {
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    transform: translateY(-4px) scale(1.04);
+  }
+}
+
+@keyframes mobile-sidebar {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
 }
