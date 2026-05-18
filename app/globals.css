@@ -24,6 +24,232 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  text-rendering: geometricPrecision;
+}
+
+::selection {
+  background: rgb(34 211 238 / 0.28);
+}
+
+.liquid-panel,
+.liquid-card,
+.liquid-button,
+.liquid-input,
+.liquid-chip,
+.liquid-modal,
+.liquid-map-stat {
+  isolation: isolate;
+  border: 1px solid rgb(255 255 255 / 0.54);
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.34) 52%, rgb(224 242 254 / 0.3)),
+    linear-gradient(180deg, rgb(255 255 255 / 0.42), rgb(255 255 255 / 0.12));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.76),
+    inset 0 -1px 0 rgb(255 255 255 / 0.22),
+    0 22px 60px rgb(15 23 42 / 0.14);
+  backdrop-filter: blur(26px) saturate(1.45);
+  -webkit-backdrop-filter: blur(26px) saturate(1.45);
+}
+
+.liquid-panel:not(.absolute):not(.fixed),
+.liquid-card:not(.absolute):not(.fixed),
+.liquid-button:not(.absolute):not(.fixed),
+.liquid-input:not(.absolute):not(.fixed),
+.liquid-chip:not(.absolute):not(.fixed),
+.liquid-modal:not(.absolute):not(.fixed),
+.liquid-map-stat:not(.absolute):not(.fixed) {
+  position: relative;
+}
+
+.liquid-panel::before,
+.liquid-card::before,
+.liquid-button::before,
+.liquid-modal::before,
+.liquid-map-stat::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    linear-gradient(120deg, rgb(255 255 255 / 0.52), transparent 28%, transparent 70%, rgb(255 255 255 / 0.18)),
+    linear-gradient(180deg, rgb(255 255 255 / 0.32), transparent 42%);
+  opacity: 0.82;
+}
+
+.liquid-panel::after,
+.liquid-card::after,
+.liquid-modal::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgb(59 130 246 / 0.12), transparent 38%, rgb(16 185 129 / 0.1));
+  opacity: 0.82;
+}
+
+.dark .liquid-panel,
+.dark .liquid-card,
+.dark .liquid-button,
+.dark .liquid-input,
+.dark .liquid-chip,
+.dark .liquid-modal,
+.dark .liquid-map-stat {
+  border-color: rgb(255 255 255 / 0.12);
+  background:
+    linear-gradient(135deg, rgb(15 23 42 / 0.76), rgb(15 23 42 / 0.44) 54%, rgb(8 47 73 / 0.28)),
+    linear-gradient(180deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.02));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    inset 0 -1px 0 rgb(255 255 255 / 0.05),
+    0 28px 70px rgb(0 0 0 / 0.42);
+}
+
+.dark .liquid-panel::before,
+.dark .liquid-card::before,
+.dark .liquid-button::before,
+.dark .liquid-modal::before,
+.dark .liquid-map-stat::before {
+  background:
+    linear-gradient(120deg, rgb(255 255 255 / 0.14), transparent 31%, transparent 70%, rgb(255 255 255 / 0.08)),
+    linear-gradient(180deg, rgb(255 255 255 / 0.1), transparent 44%);
+}
+
+.liquid-card,
+.liquid-button,
+.liquid-input,
+.liquid-chip,
+.liquid-map-stat {
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    background 220ms ease,
+    transform 220ms ease;
+}
+
+.liquid-card:hover,
+.liquid-button:hover,
+.liquid-map-stat:hover {
+  border-color: rgb(125 211 252 / 0.58);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.82),
+    0 24px 62px rgb(14 165 233 / 0.16),
+    0 12px 30px rgb(15 23 42 / 0.12);
+}
+
+.dark .liquid-card:hover,
+.dark .liquid-button:hover,
+.dark .liquid-map-stat:hover {
+  border-color: rgb(103 232 249 / 0.28);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 26px 70px rgb(8 145 178 / 0.14),
+    0 16px 44px rgb(0 0 0 / 0.42);
+}
+
+.liquid-button-primary {
+  border: 1px solid rgb(255 255 255 / 0.62);
+  background:
+    linear-gradient(135deg, rgb(37 99 235 / 0.96), rgb(6 182 212 / 0.92) 50%, rgb(34 197 94 / 0.9)),
+    linear-gradient(180deg, rgb(255 255 255 / 0.36), transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.5),
+    0 20px 42px rgb(6 182 212 / 0.24),
+    0 10px 24px rgb(37 99 235 / 0.18);
+}
+
+.liquid-input {
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 0.78), rgb(255 255 255 / 0.42)),
+    linear-gradient(180deg, rgb(255 255 255 / 0.54), transparent);
+}
+
+.dark .liquid-input {
+  background:
+    linear-gradient(135deg, rgb(15 23 42 / 0.72), rgb(30 41 59 / 0.42)),
+    linear-gradient(180deg, rgb(255 255 255 / 0.1), transparent);
+}
+
+.liquid-chip {
+  border-radius: 999px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.62),
+    0 10px 24px rgb(15 23 42 / 0.08);
+}
+
+.liquid-chip-active {
+  color: #ffffff;
+  border-color: rgb(255 255 255 / 0.72);
+  background:
+    linear-gradient(135deg, rgb(15 23 42 / 0.96), rgb(37 99 235 / 0.88), rgb(8 145 178 / 0.84)),
+    linear-gradient(180deg, rgb(255 255 255 / 0.2), transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 14px 30px rgb(37 99 235 / 0.22);
+}
+
+.dark .liquid-chip-active {
+  color: #020617;
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 0.98), rgb(186 230 253 / 0.92), rgb(167 243 208 / 0.9)),
+    linear-gradient(180deg, rgb(255 255 255 / 0.24), transparent);
+}
+
+.liquid-glow-line {
+  background: linear-gradient(90deg, #60a5fa, #22d3ee, #34d399, #a78bfa);
+  background-size: 240% 100%;
+  animation: liquid-gradient-flow 5.8s ease-in-out infinite;
+}
+
+.liquid-route-dot {
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--route-color) 18%, transparent),
+    0 0 22px color-mix(in srgb, var(--route-color) 42%, transparent);
+}
+
+.liquid-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(14 165 233 / 0.35) transparent;
+}
+
+.liquid-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.liquid-scroll::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgb(14 165 233 / 0.3);
+  background-clip: content-box;
+}
+
+.autocomplete-suggestion-panel {
+  background: #ffffff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.autocomplete-suggestion-panel::before,
+.autocomplete-suggestion-panel::after {
+  opacity: 0;
+}
+
+.dark .autocomplete-suggestion-panel {
+  background: #020617;
+}
+
+@keyframes liquid-gradient-flow {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
 .leaflet-container {
@@ -61,7 +287,11 @@ body {
   border: 3px solid #ffffff;
   border-radius: 999px 999px 999px 4px;
   background: var(--marker-color);
-  box-shadow: 0 14px 28px rgb(15 23 42 / 0.28);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.45),
+    0 0 0 6px color-mix(in srgb, var(--marker-color) 14%, transparent),
+    0 18px 34px rgb(15 23 42 / 0.28),
+    0 0 28px color-mix(in srgb, var(--marker-color) 38%, transparent);
   color: #ffffff;
   font-size: 12px;
   font-weight: 800;
@@ -81,10 +311,14 @@ body {
 .route-marker-label {
   max-width: 118px;
   overflow: hidden;
-  border: 1px solid rgb(226 232 240 / 0.95);
+  border: 1px solid rgb(255 255 255 / 0.64);
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.94);
-  box-shadow: 0 12px 24px rgb(15 23 42 / 0.16);
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.86), rgb(255 255 255 / 0.56));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.82),
+    0 14px 28px rgb(15 23 42 / 0.14);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
   color: #0f172a;
   font-size: 12px;
   font-weight: 800;
@@ -96,7 +330,7 @@ body {
 
 .route-marker-label-dark {
   border-color: rgb(255 255 255 / 0.12);
-  background: rgb(15 23 42 / 0.92);
+  background: linear-gradient(135deg, rgb(15 23 42 / 0.86), rgb(8 47 73 / 0.58));
   color: #f8fafc;
   box-shadow: 0 16px 28px rgb(0 0 0 / 0.35);
 }
@@ -147,6 +381,10 @@ body {
   animation: mobile-sidebar 260ms ease both;
 }
 
+.animate-modal-enter {
+  animation: modal-enter 220ms ease both;
+}
+
 @keyframes startup-fade {
   0%,
   70% {
@@ -155,6 +393,18 @@ body {
 
   100% {
     opacity: 0;
+  }
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
