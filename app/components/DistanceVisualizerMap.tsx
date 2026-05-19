@@ -24,6 +24,7 @@ import {
 } from "@/app/lib/subscription";
 import {
   browserLocalPersistence,
+  type User as FirebaseUser,
   GoogleAuthProvider,
   getRedirectResult,
   onAuthStateChanged,
@@ -827,15 +828,55 @@ export default function DistanceVisualizer() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const routeLinkAppliedRef = useRef(false);
+  const authInitializedRef = useRef(false);
 
   const showToast = useCallback((message: string, tone: "success" | "error" | "info" = "info") => {
     setToast({ message, tone });
     window.setTimeout(() => setToast(undefined), 3200);
   }, []);
 
+  const waitForAuthUser = useCallback(async () => {
+    const auth = getFirebaseAuth();
+
+    if (!auth) {
+      throw new Error("Firebase Authentication could not start.");
+    }
+
+    if (authInitializedRef.current) {
+      return auth.currentUser;
+    }
+
+    console.info("[Firebase Auth] Waiting for auth initialization before protected API request", {
+      hasCurrentUser: Boolean(auth.currentUser),
+      authLoading,
+    });
+
+    return new Promise<FirebaseUser | null>((resolve) => {
+      let unsubscribe: () => void = () => undefined;
+      const timeout = window.setTimeout(() => {
+        unsubscribe();
+        authInitializedRef.current = true;
+        console.warn("[Firebase Auth] Auth initialization wait timed out", {
+          hasCurrentUser: Boolean(auth.currentUser),
+        });
+        resolve(auth.currentUser);
+      }, 8000);
+
+      unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+        window.clearTimeout(timeout);
+        authInitializedRef.current = true;
+        console.info("[Firebase Auth] Auth initialization resolved for protected API request", {
+          currentUserExists: Boolean(firebaseUser),
+          uid: firebaseUser?.uid ?? null,
+        });
+        resolve(firebaseUser);
+      });
+    });
+  }, [authLoading]);
+
   const getAuthToken = useCallback(async (forceRefresh = false) => {
     const auth = getFirebaseAuth();
-    const currentUser = auth?.currentUser;
+    const currentUser = auth?.currentUser ?? (await waitForAuthUser());
 
     console.info("[Firebase Auth] Preparing token for protected API request", {
       currentUserExists: Boolean(currentUser),
@@ -920,7 +961,7 @@ export default function DistanceVisualizer() {
 
     console.info("[Firebase Auth] Refreshing ID token before protected API request");
     return currentUser.getIdToken(true);
-  }, [user?.uid]);
+  }, [user?.uid, waitForAuthUser]);
 
   const fetchWithFirebaseAuth = useCallback(
     async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -1007,6 +1048,11 @@ export default function DistanceVisualizer() {
   }, []);
 
   const refreshSubscription = useCallback(async () => {
+    if (authLoading) {
+      console.info("[Firebase Auth] Delaying subscription status request until auth initialization completes");
+      return;
+    }
+
     if (!user) {
       setSubscription(FREE_SUBSCRIPTION);
       return;
@@ -1045,7 +1091,7 @@ export default function DistanceVisualizer() {
       setBillingStatus("error");
       setBillingError(error instanceof Error ? error.message : "Unable to load subscription.");
     }
-  }, [fetchWithFirebaseAuth, user]);
+  }, [authLoading, fetchWithFirebaseAuth, user]);
 
   useEffect(() => {
     window.sessionStorage.setItem(DASHBOARD_COLLAPSED_SESSION_KEY, String(dashboardCollapsed));
@@ -1069,6 +1115,7 @@ export default function DistanceVisualizer() {
   useEffect(() => {
     if (firebaseConfigError) {
       const timer = window.setTimeout(() => {
+        authInitializedRef.current = true;
         setAuthLoading(false);
         setCloudStatus("error");
         setCloudError(`Missing Firebase config: ${firebaseConfigError}`);
@@ -1080,6 +1127,7 @@ export default function DistanceVisualizer() {
 
     if (!auth) {
       const timer = window.setTimeout(() => {
+        authInitializedRef.current = true;
         setAuthLoading(false);
         setCloudStatus("error");
         setCloudError("Firebase Authentication could not be initialized.");
@@ -1087,6 +1135,7 @@ export default function DistanceVisualizer() {
       return () => window.clearTimeout(timer);
     }
 
+    authInitializedRef.current = false;
     let authStateResolved = false;
     const authReadyFallbackTimer = window.setTimeout(() => {
       if (authStateResolved) {
@@ -1094,6 +1143,7 @@ export default function DistanceVisualizer() {
       }
 
       authStateResolved = true;
+      authInitializedRef.current = true;
       setAuthLoading(false);
 
       if (!auth.currentUser) {
@@ -1130,6 +1180,7 @@ export default function DistanceVisualizer() {
 
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       authStateResolved = true;
+      authInitializedRef.current = true;
       window.clearTimeout(authReadyFallbackTimer);
       setAuthLoading(false);
 
