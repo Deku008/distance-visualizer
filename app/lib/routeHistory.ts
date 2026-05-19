@@ -12,6 +12,7 @@ import {
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/app/lib/firebase";
+import { normalizeSubscription, type SubscriptionSnapshot } from "@/app/lib/subscription";
 
 export type CoordinateTuple = [number, number];
 export type SerializedCoordinate = { lat: number; lng: number };
@@ -260,31 +261,6 @@ export function normalizeRouteList(value: unknown) {
   return routes.length > 0 ? routes : undefined;
 }
 
-export function serializeRoute(route: SavedRoute) {
-  const dateParts = formatRouteDateParts(route.createdAt);
-
-  return {
-    id: route.id,
-    name: route.name,
-    start: route.start,
-    end: route.end,
-    color: route.color,
-    visible: route.visible,
-    createdAt: route.createdAt,
-    createdDate: route.createdDate || dateParts.createdDate,
-    createdTime: route.createdTime || dateParts.createdTime,
-    geometry: serializeGeometry(route.geometry),
-    distanceMeters: route.distanceMeters,
-    durationSeconds: route.durationSeconds,
-    status: route.status,
-    error: route.error,
-    startLabel: route.startLabel,
-    endLabel: route.endLabel,
-    timestamp: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
-}
-
 function routeFromSnapshot(snapshot: QueryDocumentSnapshot<DocumentData>) {
   return normalizeSavedRoute({ ...snapshot.data(), id: Number(snapshot.id) || snapshot.data().id });
 }
@@ -323,6 +299,16 @@ export function getUserLabelsCollection(uid: string) {
   }
 
   return collection(db, USERS_COLLECTION, uid, LABELS_COLLECTION);
+}
+
+export function getUserDocument(uid: string) {
+  const db = getFirebaseDb();
+
+  if (!db) {
+    throw new Error("Firebase could not be initialized.");
+  }
+
+  return doc(db, USERS_COLLECTION, uid);
 }
 
 export function subscribeToUserRoutes(
@@ -367,6 +353,21 @@ export function subscribeToUserLabels(
   );
 }
 
+export function subscribeToUserSubscription(
+  uid: string,
+  onSubscription: (subscription: SubscriptionSnapshot) => void,
+  onError: (error: Error) => void,
+) {
+  return onSnapshot(
+    getUserDocument(uid),
+    (snapshot) => {
+      const userData = snapshot.data();
+      onSubscription(normalizeSubscription(userData?.subscription ?? userData));
+    },
+    onError,
+  );
+}
+
 export async function recordUserLabels(uid: string, labels: string[]) {
   const normalizedLabels = [...new Set(labels.map(normalizeLabel).filter(Boolean))];
 
@@ -392,11 +393,6 @@ export async function recordUserLabels(uid: string, labels: string[]) {
       ),
     ),
   );
-}
-
-export async function saveUserRoute(uid: string, route: SavedRoute) {
-  const routeRef = doc(getUserRoutesCollection(uid), String(route.id));
-  await setDoc(routeRef, serializeRoute(route), { merge: true });
 }
 
 export async function deleteUserRoute(uid: string, routeId: number) {

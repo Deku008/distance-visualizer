@@ -1,5 +1,6 @@
 "use client";
 
+import RazorpayCheckout from "@/app/components/RazorpayCheckout";
 import { firebaseConfigError, getFirebaseAuth } from "@/app/lib/firebase";
 import {
   deleteUserRoute,
@@ -7,20 +8,28 @@ import {
   normalizeLabel,
   parseGeometry,
   recordUserLabels,
-  saveUserRoute,
   subscribeToUserLabels,
   subscribeToUserRoutes,
+  subscribeToUserSubscription,
   type CoordinateTuple,
   type LabelSuggestion,
   type RouteLocation,
   type SavedRoute,
 } from "@/app/lib/routeHistory";
 import {
+  FREE_LANE_LIMIT,
+  FREE_SUBSCRIPTION,
+  PRO_PRICE_DISPLAY,
+  type SubscriptionSnapshot,
+} from "@/app/lib/subscription";
+import {
   browserLocalPersistence,
   GoogleAuthProvider,
+  getRedirectResult,
   onAuthStateChanged,
   setPersistence,
   signInWithPopup,
+  signInWithRedirect,
   signOut as signOutFirebase,
 } from "firebase/auth";
 import { AnimatePresence, motion } from "framer-motion";
@@ -34,6 +43,8 @@ import {
   ChevronDown,
   ChevronUp,
   Clock3,
+  CreditCard,
+  Crown,
   Download,
   GitCompare,
   LogOut,
@@ -52,6 +63,7 @@ import {
   User,
   X,
   Tags,
+  Zap,
 } from "lucide-react";
 import { Fragment, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -82,6 +94,7 @@ type Theme = "light" | "dark";
 type Panel = "plan" | "history" | "analytics" | "compare";
 type TrafficLabel = "Clear" | "Moderate" | "Heavy";
 type CloudSyncStatus = "idle" | "authenticating" | "loading" | "ready" | "saving" | "deleting" | "error";
+type BillingStatus = "idle" | "loading" | "redirecting" | "error";
 type RouteColorStyle = CSSProperties & Record<"--route-color", string>;
 type AppUser = {
   uid: string;
@@ -109,6 +122,7 @@ const COLORS = [
 const LABEL_PRESETS = ["Home", "Factory", "Warehouse", "Shop", "Office"];
 const INITIAL_ROUTES: RouteEntry[] = [];
 const DASHBOARD_COLLAPSED_SESSION_KEY = "india-distance-dashboard-collapsed";
+const AUTH_REDIRECT_PENDING_SESSION_KEY = "routevision-google-redirect-pending";
 const springTransition = { type: "spring" as const, stiffness: 300, damping: 28, mass: 0.72 };
 const softSpringTransition = { type: "spring" as const, stiffness: 220, damping: 26, mass: 0.8 };
 const liquidHover = { y: -4, scale: 1.01 };
@@ -216,6 +230,49 @@ function trafficProfile(route: Pick<RouteEntry, "start" | "end" | "durationSecon
   }
 
   return { label: "Clear", color: "#22c55e", delayRatio };
+}
+
+function firebaseAuthCode(error: unknown) {
+  return error && typeof error === "object" && "code" in error && typeof error.code === "string"
+    ? error.code
+    : undefined;
+}
+
+function isPopupFallbackError(error: unknown) {
+  const code = firebaseAuthCode(error);
+  return (
+    code === "auth/popup-blocked" ||
+    code === "auth/popup-closed-by-user" ||
+    code === "auth/cancelled-popup-request" ||
+    code === "auth/operation-not-supported-in-this-environment" ||
+    code === "auth/web-storage-unsupported"
+  );
+}
+
+function googleAuthMessage(error: unknown) {
+  const code = firebaseAuthCode(error);
+
+  if (code === "auth/popup-blocked") {
+    return "Your browser blocked the Google popup. Redirecting to Google sign-in instead.";
+  }
+
+  if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+    return "The Google popup was closed. Redirecting to Google sign-in instead.";
+  }
+
+  if (code === "auth/operation-not-supported-in-this-environment" || code === "auth/web-storage-unsupported") {
+    return "This browser works better with redirect sign-in. Redirecting to Google now.";
+  }
+
+  if (code === "auth/network-request-failed") {
+    return "Google sign-in needs a network connection. Check your connection and try again.";
+  }
+
+  if (code === "auth/unauthorized-domain") {
+    return "This domain is not authorized for Firebase Google sign-in.";
+  }
+
+  return "Google sign-in failed. Please try again.";
 }
 
 function parseCsvRows(text: string) {
@@ -742,6 +799,10 @@ export default function DistanceVisualizer() {
   const [toast, setToast] = useState<{ tone: "success" | "error" | "info"; message: string }>();
   const [deletingRouteIds, setDeletingRouteIds] = useState<Set<number>>(new Set());
   const [exportLoading, setExportLoading] = useState(false);
+  const [subscription, setSubscription] = useState<SubscriptionSnapshot>(FREE_SUBSCRIPTION);
+  const [billingStatus, setBillingStatus] = useState<BillingStatus>("idle");
+  const [billingError, setBillingError] = useState<string>();
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const requestedRouteIds = useRef(new Set<number>());
   const pendingDeletedRouteIds = useRef(new Set<number>());
@@ -753,6 +814,52 @@ export default function DistanceVisualizer() {
     setToast({ message, tone });
     window.setTimeout(() => setToast(undefined), 3200);
   }, []);
+
+  const getAuthToken = useCallback(async () => {
+    const auth = getFirebaseAuth();
+    const currentUser = auth?.currentUser;
+
+    if (!currentUser) {
+      throw new Error("Please sign in again to continue.");
+    }
+
+    return currentUser.getIdToken();
+  }, []);
+
+  const openUpgradeModal = useCallback(() => {
+    setBillingError(undefined);
+    setUpgradeModalOpen(true);
+  }, []);
+
+  const refreshSubscription = useCallback(async () => {
+    if (!user) {
+      setSubscription(FREE_SUBSCRIPTION);
+      return;
+    }
+
+    setBillingStatus("loading");
+
+    try {
+      const token = await getAuthToken();
+      const response = await fetch("/api/subscription/status", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await response.json()) as {
+        subscription?: SubscriptionSnapshot;
+        error?: string;
+      };
+
+      if (!response.ok || !data.subscription) {
+        throw new Error(data.error ?? "Unable to load subscription.");
+      }
+
+      setSubscription(data.subscription);
+      setBillingStatus("idle");
+    } catch (error) {
+      setBillingStatus("error");
+      setBillingError(error instanceof Error ? error.message : "Unable to load subscription.");
+    }
+  }, [getAuthToken, user]);
 
   useEffect(() => {
     window.sessionStorage.setItem(DASHBOARD_COLLAPSED_SESSION_KEY, String(dashboardCollapsed));
@@ -796,6 +903,31 @@ export default function DistanceVisualizer() {
 
     void setPersistence(auth, browserLocalPersistence).catch(() => undefined);
 
+    if (window.sessionStorage.getItem(AUTH_REDIRECT_PENDING_SESSION_KEY) === "true") {
+      setCloudStatus("authenticating");
+      setCloudError("Finishing Google sign-in...");
+    }
+
+    void getRedirectResult(auth)
+      .then((result) => {
+        window.sessionStorage.removeItem(AUTH_REDIRECT_PENDING_SESSION_KEY);
+
+        if (result?.user) {
+          setCloudStatus("ready");
+          setCloudError(undefined);
+          showToast("Signed in with Google.", "success");
+        } else if (!auth.currentUser) {
+          setCloudStatus("idle");
+          setCloudError(undefined);
+        }
+      })
+      .catch((error) => {
+        window.sessionStorage.removeItem(AUTH_REDIRECT_PENDING_SESSION_KEY);
+        setCloudStatus("error");
+        setCloudError(googleAuthMessage(error));
+        showToast("Google sign-in could not finish.", "error");
+      });
+
     return onAuthStateChanged(auth, (firebaseUser) => {
       setAuthLoading(false);
 
@@ -803,8 +935,12 @@ export default function DistanceVisualizer() {
         setUser(undefined);
         setRoutes(INITIAL_ROUTES);
         setLabelSuggestions([]);
-        setCloudStatus("idle");
+        setCloudStatus((currentStatus) => (currentStatus === "authenticating" ? currentStatus : "idle"));
         setSavedAt(undefined);
+        setSubscription(FREE_SUBSCRIPTION);
+        setUpgradeModalOpen(false);
+        setBillingStatus("idle");
+        setBillingError(undefined);
         pendingDeletedRouteIds.current = new Set();
         setDeletingRouteIds(new Set());
         return;
@@ -818,7 +954,26 @@ export default function DistanceVisualizer() {
       });
       setAvatarFailed(false);
     });
-  }, []);
+  }, [showToast]);
+
+  useEffect(() => {
+    void refreshSubscription();
+  }, [refreshSubscription]);
+
+  useEffect(() => {
+    const checkoutStatus = new URLSearchParams(window.location.search).get("razorpay");
+
+    if (checkoutStatus === "success") {
+      showToast("Payment verified. RouteVision Pro is active.", "success");
+      void refreshSubscription();
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    if (checkoutStatus === "cancelled") {
+      showToast("Razorpay checkout closed.", "info");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [refreshSubscription, showToast]);
 
   useEffect(() => {
     if (!user) {
@@ -881,6 +1036,29 @@ export default function DistanceVisualizer() {
       window.clearTimeout(loadingTimer);
       unsubscribe?.();
     };
+  }, [showToast, user]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    let unsubscribe: (() => void) | undefined;
+
+    try {
+      unsubscribe = subscribeToUserSubscription(
+        user.uid,
+        (nextSubscription) => setSubscription(nextSubscription),
+        () => {
+          showToast("Could not sync billing status.", "error");
+        },
+      );
+    } catch (error) {
+      setBillingStatus("error");
+      setBillingError(error instanceof Error ? error.message : "Unable to sync billing status.");
+    }
+
+    return () => unsubscribe?.();
   }, [showToast, user]);
 
   useEffect(() => {
@@ -997,6 +1175,12 @@ export default function DistanceVisualizer() {
   const visibleRoutes = routes.filter((route) => route.visible);
   const mapRoutes = draftRoute ? [...routes, draftRoute] : routes;
   const analyticsRoutes = visibleRoutes;
+  const isPro = subscription.isPro;
+  const laneCount = routes.length;
+  const freeLaneUsage = Math.min(laneCount, FREE_LANE_LIMIT);
+  const remainingFreeLanes = isPro ? null : Math.max(FREE_LANE_LIMIT - laneCount, 0);
+  const laneUsagePercent = isPro ? 100 : Math.min((laneCount / FREE_LANE_LIMIT) * 100, 100);
+  const laneLimitReached = !isPro && laneCount >= FREE_LANE_LIMIT;
   const totalTravelDistance = analyticsRoutes.reduce(
     (sum, route) => sum + routeMetrics(route).travelDistance,
     0,
@@ -1066,8 +1250,46 @@ export default function DistanceVisualizer() {
     setSidebarOpen(false);
   };
 
+  const openSubscriptionStatus = () => {
+    void refreshSubscription();
+    showToast("Subscription status refreshed.", "info");
+  };
+
+  const saveLaneOnServer = async (route: RouteEntry) => {
+    const token = await getAuthToken();
+    const response = await fetch("/api/lanes", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ route }),
+    });
+    const data = (await response.json()) as {
+      subscription?: SubscriptionSnapshot;
+      error?: string;
+      code?: string;
+    };
+
+    if (data.subscription) {
+      setSubscription(data.subscription);
+    }
+
+    if (!response.ok) {
+      const error = new Error(data.error ?? "Unable to save lane.");
+      error.name = data.code ?? "LANE_SAVE_ERROR";
+      throw error;
+    }
+  };
+
   const addRoute = async () => {
     if (!user || !selectedStart || !selectedEnd || selectedStart.name === selectedEnd.name) {
+      return;
+    }
+
+    if (laneLimitReached) {
+      openUpgradeModal();
+      showToast("Upgrade to Pro to save more than 10 lanes.", "info");
       return;
     }
 
@@ -1102,7 +1324,7 @@ export default function DistanceVisualizer() {
     setCloudStatus("saving");
 
     try {
-      await saveUserRoute(user.uid, route);
+      await saveLaneOnServer(route);
       await recordUserLabels(user.uid, [normalizedStartLabel, normalizedEndLabel]).catch(() => undefined);
       setCloudStatus("ready");
       setSavedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
@@ -1111,6 +1333,15 @@ export default function DistanceVisualizer() {
       setRoutes((currentRoutes) => currentRoutes.filter((currentRoute) => currentRoute.id !== route.id));
       setCloudStatus("error");
       setCloudError(error instanceof Error ? error.message : "Unable to save route.");
+
+      if (error instanceof Error && error.name === "LANE_LIMIT_REACHED") {
+        setCloudStatus("ready");
+        setCloudError(undefined);
+        openUpgradeModal();
+        showToast("You have used all 10 free lanes. Upgrade to add more.", "info");
+        return;
+      }
+
       showToast("Could not save route.", "error");
     }
   };
@@ -1131,7 +1362,7 @@ export default function DistanceVisualizer() {
     setSidebarOpen(false);
 
     try {
-      await saveUserRoute(user.uid, reopenedRoute);
+      await saveLaneOnServer(reopenedRoute);
       showToast("Route reopened on the map.", "success");
     } catch (error) {
       setCloudStatus("error");
@@ -1153,7 +1384,7 @@ export default function DistanceVisualizer() {
     setCloudStatus("saving");
 
     try {
-      await saveUserRoute(user.uid, updatedRoute);
+      await saveLaneOnServer(updatedRoute);
       setCloudStatus("ready");
       showToast(visible ? "Route restored to plan." : "Route removed from plan and kept in history.", "success");
     } catch (error) {
@@ -1206,7 +1437,7 @@ export default function DistanceVisualizer() {
     setCloudStatus("saving");
 
     try {
-      await Promise.all(nextRoutes.map((route) => saveUserRoute(user.uid, route)));
+      await Promise.all(nextRoutes.map((route) => saveLaneOnServer(route)));
       setCloudStatus("ready");
       showToast("Plan cleared. Routes remain in history.", "success");
     } catch (error) {
@@ -1233,15 +1464,36 @@ export default function DistanceVisualizer() {
     }
 
     setCloudStatus("authenticating");
+    setCloudError(undefined);
 
     try {
       await setPersistence(auth, browserLocalPersistence);
-      await signInWithPopup(auth, new GoogleAuthProvider());
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
       showToast("Signed in with Google.", "success");
     } catch (error) {
+      const message = googleAuthMessage(error);
+
+      if (isPopupFallbackError(error)) {
+        setCloudError(message);
+        showToast("Popup blocked. Redirecting to Google sign-in.", "info");
+
+        try {
+          window.sessionStorage.setItem(AUTH_REDIRECT_PENDING_SESSION_KEY, "true");
+          await signInWithRedirect(auth, new GoogleAuthProvider());
+        } catch (redirectError) {
+          window.sessionStorage.removeItem(AUTH_REDIRECT_PENDING_SESSION_KEY);
+          setCloudStatus("error");
+          setCloudError(googleAuthMessage(redirectError));
+          showToast("Google redirect sign-in failed.", "error");
+        }
+
+        return;
+      }
+
       setCloudStatus("error");
-      setCloudError(error instanceof Error ? error.message : "Google sign in failed.");
-      showToast("Google sign in failed.", "error");
+      setCloudError(message);
+      showToast(message, "error");
     }
   };
 
@@ -1267,6 +1519,12 @@ export default function DistanceVisualizer() {
   };
 
   const exportMapImage = async () => {
+    if (!isPro) {
+      openUpgradeModal();
+      showToast("Exports are included with RouteVision Pro.", "info");
+      return;
+    }
+
     const map = mapInstanceRef.current;
 
     if (!map || exportLoading) {
@@ -1306,6 +1564,12 @@ export default function DistanceVisualizer() {
   };
 
   const exportRouteSpreadsheet = () => {
+    if (!isPro) {
+      openUpgradeModal();
+      showToast("Spreadsheet exports are included with RouteVision Pro.", "info");
+      return;
+    }
+
     if (routes.length === 0) {
       showToast("No saved routes to export.", "info");
       return;
@@ -1345,9 +1609,20 @@ export default function DistanceVisualizer() {
   };
 
   const importCsv = async (file: File) => {
+    if (!user) {
+      return;
+    }
+
     const rows = parseCsvRows(await file.text());
+    let importedCount = 0;
 
     for (const row of rows) {
+      if (!isPro && routes.length + importedCount >= FREE_LANE_LIMIT) {
+        openUpgradeModal();
+        showToast("Upgrade to Pro to import more than 10 lanes.", "info");
+        break;
+      }
+
       const source = row.source ?? row.start ?? "";
       const destination = row.destination ?? row.end ?? "";
 
@@ -1378,9 +1653,19 @@ export default function DistanceVisualizer() {
         endLabel: importedEndLabel,
       };
 
-      setRoutes((currentRoutes) => [...currentRoutes, importedRoute]);
-      if (user) {
+      try {
+        await saveLaneOnServer(importedRoute);
+        setRoutes((currentRoutes) => [...currentRoutes, importedRoute]);
+        importedCount += 1;
         void recordUserLabels(user.uid, [importedStartLabel, importedEndLabel]).catch(() => undefined);
+      } catch (error) {
+        if (error instanceof Error && error.name === "LANE_LIMIT_REACHED") {
+          openUpgradeModal();
+          showToast("Upgrade to Pro to import more lanes.", "info");
+          break;
+        }
+
+        showToast("Could not import one of the lanes.", "error");
       }
     }
   };
@@ -1389,6 +1674,14 @@ export default function DistanceVisualizer() {
     theme === "dark"
       ? "dark bg-[linear-gradient(135deg,#020617,#07111f_34%,#082f49_68%,#022c22)] text-white"
       : "bg-[linear-gradient(135deg,#f8fbff,#eef7ff_36%,#f3fbff_62%,#ecfdf5)] text-slate-950";
+  const signInButtonLabel =
+    cloudStatus === "authenticating"
+      ? cloudError?.startsWith("Finishing")
+        ? "Finishing Google sign-in..."
+        : cloudError?.includes("Redirecting")
+          ? "Redirecting to Google..."
+          : "Opening Google..."
+      : "Continue with Google";
 
   if (authLoading) {
     return (
@@ -1447,7 +1740,7 @@ export default function DistanceVisualizer() {
               className="liquid-button-primary mt-2 flex h-12 items-center justify-center gap-2 rounded-[1.15rem] text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-55"
             >
               <User className="size-4" />
-              {cloudStatus === "authenticating" ? "Opening Google..." : "Continue with Google"}
+              {signInButtonLabel}
             </motion.button>
             {cloudError ? <p className="text-sm font-medium text-red-600 dark:text-red-300">{cloudError}</p> : null}
           </div>
@@ -1494,7 +1787,11 @@ export default function DistanceVisualizer() {
               <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">
                 Plan road lanes, facilities, and ETAs across India.
               </p>
-              <div className="liquid-card mt-4 flex items-center gap-3 rounded-[1.25rem] p-2">
+              <div
+                className={`liquid-card mt-4 flex items-center gap-3 rounded-[1.25rem] p-2 ${
+                  isPro ? "premium-glass" : ""
+                }`}
+              >
                 {user.photoURL && !avatarFailed ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -1515,9 +1812,21 @@ export default function DistanceVisualizer() {
                 </div>
                 <button
                   type="button"
+                  onClick={isPro ? openSubscriptionStatus : openUpgradeModal}
+                  className={`ml-auto flex shrink-0 items-center gap-1.5 rounded-[1rem] px-2.5 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 ${
+                    isPro
+                      ? "premium-badge-glow border border-emerald-300/70 bg-emerald-400/15 text-emerald-700 dark:border-emerald-300/30 dark:bg-emerald-300/10 dark:text-emerald-200"
+                      : "liquid-chip text-blue-700 dark:text-cyan-200"
+                  }`}
+                >
+                  <Crown className="size-3.5" />
+                  {isPro ? "Premium" : "Free"}
+                </button>
+                <button
+                  type="button"
                   aria-label="Sign out"
                   onClick={() => void signOut()}
-                  className="liquid-button ml-auto grid size-9 shrink-0 place-items-center rounded-[1rem] text-slate-600 transition duration-300 hover:-translate-y-0.5 dark:text-slate-200"
+                  className="liquid-button grid size-9 shrink-0 place-items-center rounded-[1rem] text-slate-600 transition duration-300 hover:-translate-y-0.5 dark:text-slate-200"
                 >
                   <LogOut className="size-4" />
                 </button>
@@ -1583,6 +1892,65 @@ export default function DistanceVisualizer() {
                 : cloudStatus === "error"
                   ? cloudError ?? "Cloud sync is unavailable."
                   : "Cloud sync active across devices"}
+        </div>
+        <div
+          className={`liquid-card rounded-[1.25rem] px-3 transition-all duration-300 ${
+            isPro ? "premium-glass" : ""
+          } ${
+            dashboardCollapsed ? "mt-0 max-h-0 overflow-hidden py-0 opacity-0" : "mt-3 max-h-32 py-3 opacity-100"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-950 dark:text-white">
+                {isPro ? (
+                  <>
+                    <Crown className="size-3.5 text-emerald-600 dark:text-emerald-300" />
+                    Unlimited Pro lanes
+                  </>
+                ) : (
+                  <>
+                    <Route className="size-3.5 text-blue-600 dark:text-cyan-300" />
+                    {freeLaneUsage}/{FREE_LANE_LIMIT} free lanes used
+                  </>
+                )}
+              </p>
+              <p className="mt-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                {isPro
+                  ? "Advanced analytics, exports, and priority sync are active."
+                  : `${remainingFreeLanes} free ${remainingFreeLanes === 1 ? "lane" : "lanes"} remaining before Pro`}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={isPro ? openSubscriptionStatus : openUpgradeModal}
+              className={`flex shrink-0 items-center gap-1.5 rounded-[1rem] px-3 py-2 text-xs font-semibold transition hover:-translate-y-0.5 ${
+                isPro
+                  ? "liquid-chip text-blue-700 dark:text-cyan-200"
+                  : "liquid-button-primary text-white"
+              }`}
+            >
+              {isPro ? <CreditCard className="size-3.5" /> : <Crown className="size-3.5" />}
+              {isPro ? "Status" : "Upgrade Pro"}
+            </button>
+          </div>
+          <div
+            role="progressbar"
+            aria-label={isPro ? "Pro lane usage" : `${freeLaneUsage} of ${FREE_LANE_LIMIT} free lanes used`}
+            aria-valuemin={0}
+            aria-valuemax={FREE_LANE_LIMIT}
+            aria-valuenow={isPro ? FREE_LANE_LIMIT : freeLaneUsage}
+            className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-200/70 dark:bg-white/10"
+          >
+            <motion.div
+              className={`h-full rounded-full ${
+                isPro ? "bg-emerald-400" : laneLimitReached ? "bg-orange-400" : "bg-blue-500"
+              }`}
+              initial={false}
+              animate={{ width: `${laneUsagePercent}%` }}
+              transition={springTransition}
+            />
+          </div>
         </div>
       </div>
 
@@ -1737,8 +2105,8 @@ export default function DistanceVisualizer() {
               transition={springTransition}
               className="liquid-button-primary flex h-12 items-center justify-center gap-2 rounded-[1.15rem] px-4 text-sm font-semibold text-white transition duration-300 disabled:cursor-not-allowed disabled:opacity-45 dark:text-white"
             >
-              <Route className="size-4" />
-              Add lane
+              {laneLimitReached ? <Crown className="size-4" /> : <Route className="size-4" />}
+              {laneLimitReached ? "Upgrade to add lane" : "Add lane"}
             </motion.button>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -1760,7 +2128,7 @@ export default function DistanceVisualizer() {
                 ) : (
                   <Download className="size-4" />
                 )}
-                {exportLoading ? "Exporting..." : "Export map"}
+                {exportLoading ? "Exporting..." : isPro ? "Export map" : "Export map Pro"}
               </button>
               <button
                 type="button"
@@ -1768,8 +2136,8 @@ export default function DistanceVisualizer() {
                 disabled={routes.length === 0}
                 className="liquid-button col-span-2 flex h-11 items-center justify-center gap-2 rounded-[1.15rem] text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 dark:text-slate-200"
               >
-                <Download className="size-4" />
-                Export spreadsheet
+                {isPro ? <Download className="size-4" /> : <Crown className="size-4" />}
+                {isPro ? "Export spreadsheet" : "Export spreadsheet Pro"}
               </button>
               <input
                 ref={fileInputRef}
@@ -1992,13 +2360,30 @@ export default function DistanceVisualizer() {
 
       <div className={`${activePanel === "analytics" ? "block" : "hidden"} liquid-scroll flex-1 overflow-y-auto p-5`}>
         <section className="space-y-5">
-          <div className="flex items-start justify-between gap-3">
+          <div
+            className={`flex items-start justify-between gap-3 rounded-[1.35rem] p-3 ${
+              isPro ? "premium-glass" : ""
+            }`}
+          >
             <div className="flex items-center gap-2 text-slate-950 dark:text-white">
               <BarChart3 className="size-5 text-blue-600 dark:text-cyan-300" />
-              <h2 className="text-base font-semibold">Analytics dashboard</h2>
+              <div>
+                <h2 className="text-base font-semibold">Analytics dashboard</h2>
+                {isPro ? (
+                  <p className="mt-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-200">
+                    Premium analytics unlocked
+                  </p>
+                ) : null}
+              </div>
             </div>
-            <span className="liquid-chip px-3 py-1.5 text-xs font-semibold text-slate-500 dark:text-slate-300">
-              {analyticsRoutes.length} active
+            <span
+              className={`px-3 py-1.5 text-xs font-semibold ${
+                isPro
+                  ? "premium-badge-glow rounded-full border border-emerald-300/60 bg-emerald-400/15 text-emerald-700 dark:border-emerald-300/30 dark:text-emerald-200"
+                  : "liquid-chip text-slate-500 dark:text-slate-300"
+              }`}
+            >
+              {isPro ? `${analyticsRoutes.length} active Pro` : "Pro analytics"}
             </span>
           </div>
 
@@ -2031,7 +2416,7 @@ export default function DistanceVisualizer() {
                 key={label}
                 whileHover={liquidHover}
                 transition={springTransition}
-                className="liquid-card rounded-[1.35rem] p-4"
+                className={`liquid-card rounded-[1.35rem] p-4 ${isPro ? "premium-glass" : ""}`}
               >
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{label}</p>
                 <p className="mt-2 truncate text-2xl font-semibold text-slate-950 dark:text-white">{value}</p>
@@ -2040,7 +2425,40 @@ export default function DistanceVisualizer() {
             ))}
           </div>
 
-          {analyticsData.length === 0 ? (
+          {!isPro ? (
+            <motion.div
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={softSpringTransition}
+              className="liquid-card overflow-hidden rounded-[1.5rem] p-5"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-blue-600 dark:text-cyan-300">
+                    <Crown className="size-4" />
+                    Pro analytics
+                  </p>
+                  <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">
+                    Unlock charts, exports, and unlimited lanes
+                  </h3>
+                  <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                    Upgrade when your lane network grows past the free plan.
+                  </p>
+                </div>
+                <span className="liquid-chip shrink-0 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  {PRO_PRICE_DISPLAY}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={openUpgradeModal}
+                className="liquid-button-primary mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-[1.15rem] text-sm font-semibold text-white transition hover:-translate-y-0.5"
+              >
+                <Crown className="size-4" />
+                Upgrade to Pro
+              </button>
+            </motion.div>
+          ) : analyticsData.length === 0 ? (
             <div className="liquid-card rounded-[1.35rem] border-dashed p-5 text-sm font-medium text-slate-500 dark:text-slate-400">
               Add or reopen routes in the plan to see charts.
             </div>
@@ -2050,7 +2468,7 @@ export default function DistanceVisualizer() {
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={softSpringTransition}
-                className="liquid-card rounded-[1.5rem] p-4"
+                className={`liquid-card rounded-[1.5rem] p-4 ${isPro ? "premium-glass" : ""}`}
               >
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
@@ -2089,7 +2507,7 @@ export default function DistanceVisualizer() {
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={softSpringTransition}
-                className="liquid-card rounded-[1.5rem] p-4"
+                className={`liquid-card rounded-[1.5rem] p-4 ${isPro ? "premium-glass" : ""}`}
               >
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
@@ -2216,6 +2634,144 @@ export default function DistanceVisualizer() {
           </div>
         </div>
       ) : null}
+
+      <AnimatePresence>
+        {upgradeModalOpen ? (
+          <motion.div
+            key="upgrade-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.24 }}
+            className="fixed inset-0 z-[1250] grid place-items-center overflow-y-auto bg-slate-950/62 p-4 backdrop-blur-2xl"
+            onClick={() => setUpgradeModalOpen(false)}
+          >
+            <motion.section
+              initial={{ opacity: 0, y: 28, scale: 0.94, filter: "blur(8px)" }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              transition={springTransition}
+              className="liquid-modal premium-modal-aura w-full max-w-lg overflow-hidden rounded-[2rem]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="relative overflow-hidden border-b border-white/25 px-6 py-5 dark:border-white/10">
+                <div className="liquid-glow-line absolute inset-x-0 top-0 h-1" />
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-blue-600 dark:text-cyan-300">
+                      <Crown className="size-4" />
+                      RouteVision Pro
+                    </p>
+                    <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
+                      Build without lane limits
+                    </h2>
+                    <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                      The first {FREE_LANE_LIMIT} saved lanes are free. Pro unlocks unlimited planning for growing route networks.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Close upgrade modal"
+                    onClick={() => setUpgradeModalOpen(false)}
+                    className="liquid-button grid size-10 shrink-0 place-items-center rounded-[1.15rem] text-slate-700 transition hover:-translate-y-0.5 dark:text-slate-200"
+                  >
+                    <X className="size-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-5 p-6">
+                <div className="liquid-card rounded-[1.5rem] p-4">
+                  <div className="flex items-end justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                        Monthly plan
+                      </p>
+                      <p className="mt-2 text-4xl font-semibold tracking-tight text-slate-950 dark:text-white">
+                        ₹100
+                        <span className="text-base font-semibold text-slate-500 dark:text-slate-400">/month</span>
+                      </p>
+                    </div>
+                    <span className="liquid-chip px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-200">
+                      UPI, cards, netbanking
+                    </span>
+                  </div>
+                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200/70 dark:bg-white/10">
+                    <motion.div
+                      className="h-full rounded-full bg-emerald-400"
+                      initial={{ width: 0 }}
+                      animate={{ width: "100%" }}
+                      transition={{ duration: 0.7, ease: "easeOut" }}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    ["Unlimited lanes", "Save every route you need across devices."],
+                    ["Advanced analytics", "Compare distance, ETA, and traffic trends."],
+                    ["Exports", "Download map images and route spreadsheets."],
+                    ["Priority cloud sync", "Keep planning data current across sessions."],
+                    ["Razorpay checkout", "Test-mode upgrade with UPI, cards, and netbanking."],
+                  ].map(([label, detail]) => (
+                    <div key={label} className="flex gap-3">
+                      <span className="liquid-button grid size-9 shrink-0 place-items-center rounded-[1rem] text-blue-600 dark:text-cyan-200">
+                        <Zap className="size-4" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-950 dark:text-white">{label}</p>
+                        <p className="mt-0.5 text-xs font-medium text-slate-500 dark:text-slate-400">{detail}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {billingError ? (
+                  <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200">
+                    {billingError}
+                  </p>
+                ) : null}
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <RazorpayCheckout
+                    billingStatus={billingStatus}
+                    getAuthToken={getAuthToken}
+                    userName={user.name}
+                    userEmail={user.email}
+                    onStart={() => {
+                      setBillingStatus("redirecting");
+                      setBillingError(undefined);
+                    }}
+                    onClose={() => {
+                      setBillingStatus("idle");
+                      showToast("Razorpay checkout closed.", "info");
+                    }}
+                    onError={(message) => {
+                      setBillingStatus("error");
+                      setBillingError(message);
+                      showToast(message, "error");
+                    }}
+                    onSuccess={async () => {
+                      setBillingStatus("idle");
+                      setUpgradeModalOpen(false);
+                      showToast("Payment verified. RouteVision Pro is active.", "success");
+                      await refreshSubscription();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={isPro ? openSubscriptionStatus : () => setUpgradeModalOpen(false)}
+                    className="liquid-button flex h-12 items-center justify-center gap-2 rounded-[1.15rem] text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 dark:text-slate-200"
+                  >
+                    <CreditCard className="size-4" />
+                    {isPro ? "View status" : "Keep free plan"}
+                  </button>
+                </div>
+              </div>
+            </motion.section>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <div
         className={`absolute inset-y-0 left-0 z-[500] hidden transition-all duration-300 lg:block ${
