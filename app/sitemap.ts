@@ -1,6 +1,5 @@
 import type { MetadataRoute } from "next";
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://routevision.app";
+import { siteUrl } from "./lib/seo";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return [

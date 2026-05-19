@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { absoluteUrl, siteUrl } from "./lib/seo";
 import "./globals.css";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://routevision.app";
 const title = "RouteVision";
 const description =
   "RouteVision is a route analytics and lane planning platform for saving routes, comparing distances, analyzing travel times, and syncing route history across devices.";
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
   publisher: "RouteVision",
   category: "Route analytics software",
   alternates: {
-    canonical: "/",
+    canonical: siteUrl,
   },
   icons: {
     icon: [
@@ -53,13 +53,13 @@ export const metadata: Metadata = {
   openGraph: {
     title: "RouteVision | Route Analytics and Lane Planning Platform",
     description,
-    url: "/",
+    url: siteUrl,
     siteName: "RouteVision",
     type: "website",
     locale: "en_US",
     images: [
       {
-        url: "/opengraph-image",
+        url: absoluteUrl("/opengraph-image"),
         width: 1200,
         height: 630,
         alt: "RouteVision route analytics and lane planning dashboard",
@@ -70,7 +70,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "RouteVision | Route Analytics and Lane Planning Platform",
     description,
-    images: ["/opengraph-image"],
+    images: [absoluteUrl("/opengraph-image")],
   },
   robots: {
     index: true,
