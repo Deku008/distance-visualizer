@@ -114,7 +114,7 @@ export default function RazorpayCheckout({
       });
     };
 
-    let response = await run(false);
+    let response = await run(true);
 
     if (response.status !== 401) {
       return response;

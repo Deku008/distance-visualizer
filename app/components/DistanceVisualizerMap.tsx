@@ -835,6 +835,14 @@ export default function DistanceVisualizer() {
       !forceRefresh &&
       (!Number.isFinite(expiresAt) || expiresAt - Date.now() <= FIREBASE_TOKEN_REFRESH_BUFFER_MS);
 
+    console.info("[Firebase Auth] Prepared ID token for protected API request", {
+      uid: currentUser.uid,
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      forceRefresh,
+      expiresAt: tokenResult.expirationTime,
+      refreshBuffered: shouldRefresh,
+    });
+
     if (!shouldRefresh) {
       return tokenResult.token;
     }
@@ -856,7 +864,7 @@ export default function DistanceVisualizer() {
         });
       };
 
-      let response = await run(false);
+      let response = await run(true);
 
       if (response.status !== 401) {
         return response;
@@ -1023,6 +1031,23 @@ export default function DistanceVisualizer() {
         photoURL: firebaseUser.photoURL ?? undefined,
       });
       setAvatarFailed(false);
+
+      void firebaseUser
+        .getIdTokenResult(true)
+        .then((tokenResult) => {
+          console.info("[Firebase Auth] Primed fresh ID token after auth state change", {
+            uid: firebaseUser.uid,
+            projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+            expiresAt: tokenResult.expirationTime,
+            signInProvider: tokenResult.signInProvider,
+          });
+        })
+        .catch((error) => {
+          console.warn("[Firebase Auth] Could not refresh ID token after auth state change", {
+            uid: firebaseUser.uid,
+            message: error instanceof Error ? error.message : "Unknown token refresh error.",
+          });
+        });
     });
 
     return () => {
