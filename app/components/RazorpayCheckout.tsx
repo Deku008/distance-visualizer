@@ -117,8 +117,26 @@ export default function RazorpayCheckout({
   const fetchWithFirebaseAuth = async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const run = async (forceRefresh: boolean) => {
       const token = await getAuthToken(forceRefresh);
+      const authorizationHeader = token ? `Bearer ${token}` : undefined;
+
+      if (!authorizationHeader) {
+        console.warn("[Firebase Auth] Prevented Razorpay API request without token", {
+          forceRefresh,
+          tokenLength: token?.length ?? 0,
+        });
+        throw new Error("Please sign in again to continue.");
+      }
+
       const headers = new Headers(init.headers);
-      headers.set("Authorization", `Bearer ${token}`);
+      headers.set("Authorization", authorizationHeader);
+
+      console.info("[Firebase Auth] Sending Razorpay protected API request", {
+        url: typeof input === "string" ? input : input.toString(),
+        forceRefresh,
+        tokenLength: token.length,
+        authorizationHeaderSent: headers.has("Authorization"),
+        authorizationFormat: "Bearer <token>",
+      });
 
       return fetch(input, {
         ...init,
@@ -133,7 +151,8 @@ export default function RazorpayCheckout({
     }
 
     const data = (await response.clone().json().catch(() => ({}))) as ApiErrorResponse;
-    const refreshableTokenError = data.code === "TOKEN_EXPIRED" || data.code === "INVALID_TOKEN";
+    const refreshableTokenError =
+      data.code === "TOKEN_EXPIRED" || data.code === "INVALID_TOKEN" || data.code === "AUTH_REQUIRED";
 
     if (!refreshableTokenError) {
       return response;

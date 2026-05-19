@@ -837,38 +837,115 @@ export default function DistanceVisualizer() {
     const auth = getFirebaseAuth();
     const currentUser = auth?.currentUser;
 
+    console.info("[Firebase Auth] Preparing token for protected API request", {
+      currentUserExists: Boolean(currentUser),
+      hasAuth: Boolean(auth),
+      appUserUid: user?.uid ?? null,
+      forceRefresh,
+    });
+
     if (!currentUser) {
+      console.warn("[Firebase Auth] Protected API token requested without an authenticated user", {
+        hasAuth: Boolean(auth),
+        appUserUid: user?.uid ?? null,
+      });
       throw new Error("Please sign in again to continue.");
     }
 
-    const tokenResult = await currentUser.getIdTokenResult(forceRefresh);
+    if (user?.uid && currentUser.uid !== user.uid) {
+      console.warn("[Firebase Auth] Auth user mismatch before protected API request", {
+        appUserUid: user.uid,
+        firebaseUserUid: currentUser.uid,
+      });
+    }
+
+    if (forceRefresh) {
+      console.info("[Firebase Auth] Force-refreshing ID token for protected API request", {
+        uid: currentUser.uid,
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      });
+
+      try {
+        const refreshedToken = await currentUser.getIdToken(true);
+        console.info("[Firebase Auth] Token retrieval succeeded", {
+          uid: currentUser.uid,
+          forceRefresh: true,
+          tokenLength: refreshedToken.length,
+        });
+        return refreshedToken;
+      } catch (error) {
+        console.warn("[Firebase Auth] Token retrieval failed", {
+          uid: currentUser.uid,
+          forceRefresh: true,
+          message: error instanceof Error ? error.message : "Unknown token retrieval error.",
+        });
+        throw error;
+      }
+    }
+
+    let token: string;
+    let tokenResult: Awaited<ReturnType<typeof currentUser.getIdTokenResult>>;
+
+    try {
+      token = await currentUser.getIdToken();
+      tokenResult = await currentUser.getIdTokenResult();
+      console.info("[Firebase Auth] Token retrieval succeeded", {
+        uid: currentUser.uid,
+        forceRefresh: false,
+        tokenLength: token.length,
+      });
+    } catch (error) {
+      console.warn("[Firebase Auth] Token retrieval failed", {
+        uid: currentUser.uid,
+        forceRefresh: false,
+        message: error instanceof Error ? error.message : "Unknown token retrieval error.",
+      });
+      throw error;
+    }
+
     const expiresAt = Date.parse(tokenResult.expirationTime);
     const shouldRefresh =
-      !forceRefresh &&
-      (!Number.isFinite(expiresAt) || expiresAt - Date.now() <= FIREBASE_TOKEN_REFRESH_BUFFER_MS);
+      !Number.isFinite(expiresAt) || expiresAt - Date.now() <= FIREBASE_TOKEN_REFRESH_BUFFER_MS;
 
     console.info("[Firebase Auth] Prepared ID token for protected API request", {
       uid: currentUser.uid,
       projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      forceRefresh,
       expiresAt: tokenResult.expirationTime,
       refreshBuffered: shouldRefresh,
     });
 
     if (!shouldRefresh) {
-      return tokenResult.token;
+      return token;
     }
 
     console.info("[Firebase Auth] Refreshing ID token before protected API request");
     return currentUser.getIdToken(true);
-  }, []);
+  }, [user?.uid]);
 
   const fetchWithFirebaseAuth = useCallback(
     async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const run = async (forceRefresh: boolean) => {
         const token = await getAuthToken(forceRefresh);
+        const authorizationHeader = token ? `Bearer ${token}` : undefined;
+
+        if (!authorizationHeader) {
+          console.warn("[Firebase Auth] Prevented protected API request without token", {
+            forceRefresh,
+            tokenLength: token?.length ?? 0,
+          });
+          throw new Error("Please sign in again to continue.");
+        }
+
         const headers = new Headers(init.headers);
-        headers.set("Authorization", `Bearer ${token}`);
+        headers.set("Authorization", authorizationHeader);
+
+        console.info("[Firebase Auth] Sending protected API request", {
+          url: typeof input === "string" ? input : input.toString(),
+          forceRefresh,
+          tokenLength: token.length,
+          authorizationHeaderSent: headers.has("Authorization"),
+          authorizationFormat: "Bearer <token>",
+        });
 
         return fetch(input, {
           ...init,
@@ -883,7 +960,8 @@ export default function DistanceVisualizer() {
       }
 
       const data = (await response.clone().json().catch(() => ({}))) as ApiErrorResponse;
-      const refreshableTokenError = data.code === "TOKEN_EXPIRED" || data.code === "INVALID_TOKEN";
+      const refreshableTokenError =
+        data.code === "TOKEN_EXPIRED" || data.code === "INVALID_TOKEN" || data.code === "AUTH_REQUIRED";
 
       if (!refreshableTokenError) {
         return response;
@@ -896,12 +974,6 @@ export default function DistanceVisualizer() {
         const retryData = (await response.clone().json().catch(() => ({}))) as ApiErrorResponse;
 
         if (retryData.code === "INVALID_TOKEN" || retryData.code === "AUTH_REQUIRED") {
-          const auth = getFirebaseAuth();
-
-          if (auth?.currentUser) {
-            await signOutFirebase(auth).catch(() => undefined);
-          }
-
           const error = new Error(authApiErrorMessage(retryData, "Please sign in again to continue."));
           error.name = retryData.code;
           throw error;
@@ -947,13 +1019,27 @@ export default function DistanceVisualizer() {
       const data = (await response.json()) as {
         subscription?: SubscriptionSnapshot;
         error?: string;
+        code?: string;
       };
+
+      if (data.subscription) {
+        setSubscription(data.subscription);
+      }
+
+      if (response.status === 401 && (data.code === "AUTH_REQUIRED" || data.code === "INVALID_TOKEN")) {
+        console.warn("[Firebase Auth] Subscription status request was not authenticated", {
+          code: data.code,
+          hasAppUser: Boolean(user),
+        });
+        setBillingStatus("idle");
+        setBillingError(undefined);
+        return;
+      }
 
       if (!response.ok || !data.subscription) {
         throw new Error(data.error ?? "Unable to load subscription.");
       }
 
-      setSubscription(data.subscription);
       setBillingStatus("idle");
     } catch (error) {
       setBillingStatus("error");

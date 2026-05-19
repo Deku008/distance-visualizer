@@ -140,6 +140,21 @@ function validateProjectMatch(adminProjectId: string) {
   }
 }
 
+function authHeaderDebug(request: Request, token?: string) {
+  const authorization = request.headers.get("authorization")?.trim();
+  const hasAuthorizationHeader = Boolean(authorization);
+  const hasBearerPrefix = Boolean(authorization?.startsWith("Bearer "));
+
+  return {
+    path: new URL(request.url).pathname,
+    hasAuthorizationHeader,
+    hasBearerPrefix,
+    bearerTokenExtracted: Boolean(token),
+    tokenLength: token?.length ?? 0,
+    authorizationFormatValid: hasAuthorizationHeader && hasBearerPrefix && Boolean(token),
+  };
+}
+
 function parseBearerToken(request: Request) {
   const authorization = request.headers.get("authorization")?.trim();
   const match = authorization?.match(AUTH_HEADER_PATTERN);
@@ -225,11 +240,13 @@ export function getAdminDb() {
 
 export async function requireFirebaseUser(request: Request) {
   const token = parseBearerToken(request);
+  const headerDebug = authHeaderDebug(request, token);
+
+  logAuthDebug("Authorization header received", headerDebug);
 
   if (!token) {
     logAuthDebug("Missing bearer token", {
-      path: new URL(request.url).pathname,
-      hasAuthorizationHeader: Boolean(request.headers.get("authorization")),
+      ...headerDebug,
     });
     throw new ApiAuthError("Please sign in to continue.", 401, "AUTH_REQUIRED");
   }
@@ -242,6 +259,7 @@ export async function requireFirebaseUser(request: Request) {
     typeof preview?.exp === "number" ? new Date(preview.exp * 1000).toISOString() : undefined;
 
   logAuthDebug("Verifying ID token", {
+    ...headerDebug,
     path: new URL(request.url).pathname,
     expectedProjectId,
     clientProjectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? null,
@@ -283,6 +301,7 @@ export async function requireFirebaseUser(request: Request) {
       message.includes("expired") ||
       message.includes("auth/id-token-expired");
     console.warn("[Firebase Auth] ID token verification failed", {
+      ...headerDebug,
       path: new URL(request.url).pathname,
       code: code || null,
       expectedProjectId,
