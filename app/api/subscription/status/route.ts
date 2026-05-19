@@ -3,6 +3,8 @@ import { withFirebaseUser } from "@/app/lib/apiAuth";
 import { getAdminDb } from "@/app/lib/firebaseAdmin";
 import { FREE_LANE_LIMIT, normalizeSubscription } from "@/app/lib/subscription";
 
+export const runtime = "nodejs";
+
 export async function GET(request: Request) {
   return withFirebaseUser(request, async (user) => {
     const db = getAdminDb();

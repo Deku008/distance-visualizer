@@ -18,6 +18,9 @@ NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=your_measurement_id
 FIREBASE_PROJECT_ID=your_project_id
 FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your_project.iam.gserviceaccount.com
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+# Optional Vercel-friendly alternatives:
+# FIREBASE_PRIVATE_KEY_BASE64=base64_encoded_private_key
+# FIREBASE_SERVICE_ACCOUNT_KEY_BASE64=base64_encoded_service_account_json
 
 NEXT_PUBLIC_RAZORPAY_KEY_ID=rzp_test_your_key_id
 RAZORPAY_KEY_SECRET=your_razorpay_key_secret
@@ -25,6 +28,8 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 Enable Google as a Firebase Authentication provider for the project. Saved routes sync privately through Firestore at `users/{uid}/routes/{routeId}`. Firestore is the single source of truth for route persistence.
+
+For Vercel, set `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY` in the project Environment Variables for every deployed environment. The private key may be pasted with escaped `\n` characters, real newlines, or supplied as `FIREBASE_PRIVATE_KEY_BASE64`. Make sure `NEXT_PUBLIC_FIREBASE_PROJECT_ID` and `FIREBASE_PROJECT_ID` are the same project.
 
 RouteVision Pro uses Razorpay Standard Checkout in test mode by default. The client loads `checkout.js`, calls `/api/create-order` for a ₹100 order, and calls `/api/verify-payment` after Razorpay returns a payment callback. Payment verification happens server-side with `RAZORPAY_KEY_SECRET`; the secret key is never exposed to the browser. For local testing, use Razorpay test keys and run the app on `localhost`.
 

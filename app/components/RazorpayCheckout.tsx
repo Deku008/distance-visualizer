@@ -65,6 +65,18 @@ type ApiErrorResponse = {
   code?: string;
 };
 
+function authApiErrorMessage(data: ApiErrorResponse, fallback: string) {
+  if (data.code === "INVALID_TOKEN") {
+    return "Your sign-in session could not be verified. Please sign in again.";
+  }
+
+  if (data.code === "AUTH_REQUIRED") {
+    return "Please sign in again to continue.";
+  }
+
+  return data.error ?? fallback;
+}
+
 async function loadRazorpayCheckout() {
   if (window.Razorpay) {
     return;
@@ -129,6 +141,14 @@ export default function RazorpayCheckout({
 
     console.info("[Firebase Auth] Refreshing ID token for Razorpay API request", { code: data.code });
     response = await run(true);
+
+    if (response.status === 401) {
+      const retryData = (await response.clone().json().catch(() => ({}))) as ApiErrorResponse;
+
+      if (retryData.code === "INVALID_TOKEN" || retryData.code === "AUTH_REQUIRED") {
+        throw new Error(authApiErrorMessage(retryData, "Please sign in again to continue."));
+      }
+    }
 
     return response;
   };

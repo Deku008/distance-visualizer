@@ -281,6 +281,18 @@ function googleAuthMessage(error: unknown) {
   return "Google sign-in failed. Please try again.";
 }
 
+function authApiErrorMessage(data: ApiErrorResponse, fallback: string) {
+  if (data.code === "INVALID_TOKEN") {
+    return "Your sign-in session could not be verified. Please sign in again.";
+  }
+
+  if (data.code === "AUTH_REQUIRED") {
+    return "Please sign in again to continue.";
+  }
+
+  return data.error ?? fallback;
+}
+
 function parseCsvRows(text: string) {
   const [headerLine, ...lines] = text
     .split(/\r?\n/)
@@ -879,6 +891,22 @@ export default function DistanceVisualizer() {
 
       console.info("[Firebase Auth] Refreshing ID token after API auth failure", { code: data.code });
       response = await run(true);
+
+      if (response.status === 401) {
+        const retryData = (await response.clone().json().catch(() => ({}))) as ApiErrorResponse;
+
+        if (retryData.code === "INVALID_TOKEN" || retryData.code === "AUTH_REQUIRED") {
+          const auth = getFirebaseAuth();
+
+          if (auth?.currentUser) {
+            await signOutFirebase(auth).catch(() => undefined);
+          }
+
+          const error = new Error(authApiErrorMessage(retryData, "Please sign in again to continue."));
+          error.name = retryData.code;
+          throw error;
+        }
+      }
 
       return response;
     },

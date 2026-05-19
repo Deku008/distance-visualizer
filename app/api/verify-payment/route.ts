@@ -7,6 +7,8 @@ import {
   PRO_MONTHLY_AMOUNT_PAISE,
 } from "@/app/lib/razorpayOrder";
 
+export const runtime = "nodejs";
+
 export async function POST(request: Request) {
   return withFirebaseUser(request, async (user) => {
     const body = (await request.json()) as {

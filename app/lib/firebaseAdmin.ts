@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
@@ -42,44 +44,101 @@ function assertServerOnly() {
   }
 }
 
+function unwrapEnvValue(value: string) {
+  const trimmedValue = value.trim();
+  const firstChar = trimmedValue[0];
+  const lastChar = trimmedValue[trimmedValue.length - 1];
+  const isWrapped =
+    trimmedValue.length >= 2 &&
+    ((firstChar === '"' && lastChar === '"') ||
+      (firstChar === "'" && lastChar === "'") ||
+      (firstChar === "`" && lastChar === "`"));
+
+  return isWrapped ? trimmedValue.slice(1, -1).trim() : trimmedValue;
+}
+
+function decodeBase64Value(value: string) {
+  try {
+    return Buffer.from(unwrapEnvValue(value), "base64").toString("utf8").trim();
+  } catch {
+    return undefined;
+  }
+}
+
 function normalizePrivateKey(privateKey: string) {
-  const normalizedKey = privateKey.replace(/\\n/g, "\n").trim();
+  const unwrappedKey = unwrapEnvValue(privateKey);
+  const decodedKey = unwrappedKey.includes("BEGIN PRIVATE KEY")
+    ? unwrappedKey
+    : decodeBase64Value(unwrappedKey) ?? unwrappedKey;
+  const normalizedKey = decodedKey
+    .replace(/\\\\r\\\\n/g, "\n")
+    .replace(/\\\\n/g, "\n")
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n/g, "\n")
+    .trim();
 
   if (!normalizedKey.includes("BEGIN PRIVATE KEY") || !normalizedKey.includes("END PRIVATE KEY")) {
-    throw new Error("FIREBASE_PRIVATE_KEY is not a valid PEM private key.");
+    throw new Error(
+      "FIREBASE_PRIVATE_KEY is not a valid PEM private key. Check Vercel env formatting and newline escaping.",
+    );
   }
 
   return normalizedKey;
 }
 
 function parseServiceAccountJson(encodedConfig: string) {
+  const normalizedConfig = unwrapEnvValue(encodedConfig);
+
   try {
-    return JSON.parse(encodedConfig) as ServiceAccountConfig;
+    return JSON.parse(normalizedConfig) as ServiceAccountConfig;
   } catch {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT_KEY must be valid JSON.");
+    const decodedConfig = decodeBase64Value(normalizedConfig);
+
+    if (decodedConfig) {
+      try {
+        return JSON.parse(decodedConfig) as ServiceAccountConfig;
+      } catch {
+        // Fall through to the normalized error below.
+      }
+    }
+
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_KEY must be valid JSON or base64-encoded JSON.");
   }
 }
 
 function serviceAccountFromEnv(): ServiceAccountConfig | undefined {
-  const encodedConfig = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  const encodedConfig =
+    process.env.FIREBASE_SERVICE_ACCOUNT_KEY ?? process.env.FIREBASE_SERVICE_ACCOUNT_KEY_BASE64;
 
   if (encodedConfig) {
     const parsed = parseServiceAccountJson(encodedConfig);
     const privateKey = parsed.privateKey ?? parsed.private_key;
+    const clientEmail = parsed.clientEmail ?? parsed.client_email;
 
     return {
       projectId: parsed.projectId ?? parsed.project_id,
-      clientEmail: parsed.clientEmail ?? parsed.client_email,
+      clientEmail: clientEmail ? unwrapEnvValue(clientEmail) : undefined,
       privateKey: privateKey ? normalizePrivateKey(privateKey) : undefined,
     };
   }
 
+  let privateKey: string | undefined;
+
+  if (process.env.FIREBASE_PRIVATE_KEY) {
+    privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
+  } else if (process.env.FIREBASE_PRIVATE_KEY_BASE64) {
+    privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY_BASE64);
+  }
+
   return {
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY
-      ? normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY)
+    projectId: process.env.FIREBASE_PROJECT_ID
+      ? unwrapEnvValue(process.env.FIREBASE_PROJECT_ID)
       : undefined,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL
+      ? unwrapEnvValue(process.env.FIREBASE_CLIENT_EMAIL)
+      : undefined,
+    privateKey,
   };
 }
 
@@ -96,11 +155,25 @@ function validateServiceAccount(serviceAccount: ServiceAccountConfig | undefined
     throw new Error(`Firebase Admin credentials are missing: ${missingFields.join(", ")}.`);
   }
 
+  if (!serviceAccount?.clientEmail?.includes("@")) {
+    throw new Error("FIREBASE_CLIENT_EMAIL must be a valid Firebase service account email.");
+  }
+
   return {
     projectId: serviceAccount?.projectId as string,
     clientEmail: serviceAccount?.clientEmail as string,
     privateKey: serviceAccount?.privateKey as string,
   };
+}
+
+function maskServiceAccountEmail(clientEmail: string) {
+  const [name, domain] = clientEmail.split("@");
+
+  if (!domain) {
+    return "<invalid-email>";
+  }
+
+  return `${name.slice(0, 12)}...@${domain}`;
 }
 
 function validateProjectMatch(adminProjectId: string) {
@@ -158,8 +231,10 @@ export function getFirebaseAdminApp(): App {
     logAuthDebug("Initializing Admin SDK", {
       adminProjectId: serviceAccount.projectId,
       clientProjectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? null,
-      clientEmail: serviceAccount.clientEmail,
+      clientEmail: maskServiceAccountEmail(serviceAccount.clientEmail),
       existingApps: getApps().length,
+      privateKeyLines: serviceAccount.privateKey.split("\n").length,
+      vercelEnvironment: process.env.VERCEL_ENV ?? null,
     });
 
     return initializeApp({
