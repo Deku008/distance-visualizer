@@ -1,4 +1,5 @@
 export const FREE_LANE_LIMIT = 10;
+export const PRO_PRICE_PAISE = 10000;
 export const PRO_PRICE_DISPLAY = "₹100/month";
 
 export type SubscriptionPlan = "free" | "pro";
@@ -18,7 +19,7 @@ export type SubscriptionSnapshot = {
   status: SubscriptionStatus;
   isPro: boolean;
   laneLimit: number | null;
-  provider?: "razorpay";
+  provider?: "razorpay" | "promo";
   razorpayCustomerId?: string;
   razorpayPlanId?: string;
   razorpayOrderId?: string;
@@ -57,7 +58,7 @@ export function normalizeSubscription(value: unknown): SubscriptionSnapshot {
     status: status as SubscriptionStatus,
     isPro,
     laneLimit: isPro ? null : FREE_LANE_LIMIT,
-    provider: data.provider === "razorpay" ? "razorpay" : undefined,
+    provider: data.provider === "razorpay" || data.provider === "promo" ? data.provider : undefined,
     razorpayCustomerId: typeof data.razorpayCustomerId === "string" ? data.razorpayCustomerId : undefined,
     razorpayPlanId: typeof data.razorpayPlanId === "string" ? data.razorpayPlanId : undefined,
     razorpayOrderId: typeof data.razorpayOrderId === "string" ? data.razorpayOrderId : undefined,

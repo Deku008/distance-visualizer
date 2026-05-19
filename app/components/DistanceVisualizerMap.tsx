@@ -19,6 +19,7 @@ import {
 import {
   FREE_LANE_LIMIT,
   FREE_SUBSCRIPTION,
+  PRO_PRICE_PAISE,
   PRO_PRICE_DISPLAY,
   type SubscriptionSnapshot,
 } from "@/app/lib/subscription";
@@ -140,6 +141,18 @@ type DirectionsResponse = {
 type ApiErrorResponse = {
   error?: string;
   code?: string;
+};
+
+type PromoValidationResponse = {
+  valid?: boolean;
+  code?: string;
+  label?: string;
+  discountPercentage?: number;
+  freePro?: boolean;
+  finalAmount?: number;
+  premiumActivated?: boolean;
+  alreadyPremium?: boolean;
+  error?: string;
 };
 
 type PlaceSearchResult = Location & {
@@ -292,6 +305,10 @@ function authApiErrorMessage(data: ApiErrorResponse, fallback: string) {
   }
 
   return data.error ?? fallback;
+}
+
+function formatRupeeAmount(amountPaise: number) {
+  return `₹${Math.max(amountPaise, 0) / 100}`;
 }
 
 function parseCsvRows(text: string) {
@@ -823,6 +840,11 @@ export default function DistanceVisualizer() {
   const [billingError, setBillingError] = useState<string>();
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [premiumBenefitsOpen, setPremiumBenefitsOpen] = useState(false);
+  const [promoExpanded, setPromoExpanded] = useState(false);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoError, setPromoError] = useState<string>();
+  const [appliedPromo, setAppliedPromo] = useState<PromoValidationResponse>();
   const [avatarFailed, setAvatarFailed] = useState(false);
   const requestedRouteIds = useRef(new Set<number>());
   const pendingDeletedRouteIds = useRef(new Set<number>());
@@ -1029,6 +1051,7 @@ export default function DistanceVisualizer() {
 
   const openUpgradeModal = useCallback(() => {
     setBillingError(undefined);
+    setPromoError(undefined);
     setUpgradeModalOpen(true);
   }, []);
 
@@ -1042,6 +1065,12 @@ export default function DistanceVisualizer() {
     setSavedAt(undefined);
     setSubscription(FREE_SUBSCRIPTION);
     setUpgradeModalOpen(false);
+    setPremiumBenefitsOpen(false);
+    setPromoExpanded(false);
+    setPromoCodeInput("");
+    setPromoLoading(false);
+    setPromoError(undefined);
+    setAppliedPromo(undefined);
     setBillingStatus("idle");
     setBillingError(undefined);
     pendingDeletedRouteIds.current = new Set();
@@ -1447,6 +1476,10 @@ export default function DistanceVisualizer() {
   const remainingFreeLanes = isPro ? null : Math.max(FREE_LANE_LIMIT - laneCount, 0);
   const laneUsagePercent = isPro ? 100 : Math.min((laneCount / FREE_LANE_LIMIT) * 100, 100);
   const laneLimitReached = !isPro && laneCount >= FREE_LANE_LIMIT;
+  const checkoutAmountPaise = appliedPromo?.valid && !appliedPromo.freePro && appliedPromo.finalAmount
+    ? appliedPromo.finalAmount
+    : PRO_PRICE_PAISE;
+  const checkoutPriceDisplay = `${formatRupeeAmount(checkoutAmountPaise)}/month`;
   const totalTravelDistance = analyticsRoutes.reduce(
     (sum, route) => sum + routeMetrics(route).travelDistance,
     0,
@@ -1519,6 +1552,53 @@ export default function DistanceVisualizer() {
   const openSubscriptionStatus = () => {
     void refreshSubscription();
     showToast("Subscription status refreshed.", "info");
+  };
+
+  const applyPromoCode = async () => {
+    const normalizedCode = promoCodeInput.trim().toUpperCase();
+
+    if (!normalizedCode || promoLoading) {
+      return;
+    }
+
+    setPromoLoading(true);
+    setPromoError(undefined);
+    setBillingError(undefined);
+
+    try {
+      const response = await fetchWithFirebaseAuth("/api/validate-promo", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code: normalizedCode }),
+      });
+      const result = (await response.json()) as PromoValidationResponse;
+
+      if (!response.ok || !result.valid) {
+        throw new Error(result.error ?? "Invalid promo code.");
+      }
+
+      setAppliedPromo(result);
+      setPromoCodeInput(result.code ?? normalizedCode);
+
+      if (result.freePro || result.premiumActivated || result.alreadyPremium) {
+        setBillingStatus("idle");
+        setUpgradeModalOpen(false);
+        showToast("Promo applied. RouteVision Pro is active.", "success");
+        await refreshSubscription();
+        return;
+      }
+
+      showToast(`${result.code ?? normalizedCode} applied. Checkout price updated.`, "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to apply promo code.";
+      setAppliedPromo(undefined);
+      setPromoError(message);
+      showToast(message, "error");
+    } finally {
+      setPromoLoading(false);
+    }
   };
 
   const saveLaneOnServer = async (route: RouteEntry) => {
@@ -3011,9 +3091,14 @@ export default function DistanceVisualizer() {
                         Monthly plan
                       </p>
                       <p className="mt-2 text-4xl font-semibold tracking-tight text-slate-950 dark:text-white">
-                        ₹100
+                        {checkoutPriceDisplay.replace("/month", "")}
                         <span className="text-base font-semibold text-slate-500 dark:text-slate-400">/month</span>
                       </p>
+                      {appliedPromo?.valid && !appliedPromo.freePro ? (
+                        <p className="mt-1 text-xs font-semibold text-emerald-700 dark:text-emerald-200">
+                          {appliedPromo.discountPercentage}% off with {appliedPromo.code}
+                        </p>
+                      ) : null}
                     </div>
                     <span className="liquid-chip px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-200">
                       UPI, cards, netbanking
@@ -3049,6 +3134,90 @@ export default function DistanceVisualizer() {
                   ))}
                 </div>
 
+                <div className="liquid-card rounded-[1.5rem] p-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPromoExpanded((currentValue) => !currentValue);
+                      setPromoError(undefined);
+                    }}
+                    className="flex w-full items-center justify-between gap-3 text-left"
+                  >
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-950 dark:text-white">
+                        Have a promo code?
+                      </span>
+                      <span className="mt-0.5 block text-xs font-medium text-slate-500 dark:text-slate-400">
+                        Apply a code before opening Razorpay checkout.
+                      </span>
+                    </span>
+                    <span className="liquid-button grid size-9 shrink-0 place-items-center rounded-[1rem] text-slate-600 dark:text-slate-200">
+                      {promoExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                    </span>
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {promoExpanded ? (
+                      <motion.div
+                        key="promo-code-panel"
+                        initial={{ height: 0, opacity: 0, y: -6 }}
+                        animate={{ height: "auto", opacity: 1, y: 0 }}
+                        exit={{ height: 0, opacity: 0, y: -6 }}
+                        transition={springTransition}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-4 grid gap-3">
+                          {appliedPromo?.valid ? (
+                            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[1.15rem] border border-emerald-300/50 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-700 dark:border-emerald-300/25 dark:text-emerald-200">
+                              <span className="flex items-center gap-2">
+                                <Check className="size-4" />
+                                {appliedPromo.code} applied
+                              </span>
+                              <span>{appliedPromo.freePro ? "Free Pro" : `${appliedPromo.discountPercentage}% off`}</span>
+                            </div>
+                          ) : null}
+                          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                              value={promoCodeInput}
+                              onChange={(event) => {
+                                setPromoCodeInput(event.target.value.toUpperCase());
+                                setPromoError(undefined);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  void applyPromoCode();
+                                }
+                              }}
+                              placeholder="FREEPRO or 50OFF"
+                              disabled={promoLoading}
+                              className="liquid-input h-11 rounded-[1.15rem] px-4 text-sm font-semibold uppercase tracking-[0.08em] text-slate-950 outline-none transition duration-300 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-400/15 disabled:cursor-wait disabled:opacity-60 dark:text-white"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void applyPromoCode()}
+                              disabled={promoLoading || !promoCodeInput.trim()}
+                              className="liquid-button-primary flex h-11 items-center justify-center gap-2 rounded-[1.15rem] px-4 text-sm font-semibold text-white transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60"
+                            >
+                              {promoLoading ? (
+                                <span className="size-4 rounded-full border-2 border-white/50 border-t-white animate-spin" />
+                              ) : (
+                                <Check className="size-4" />
+                              )}
+                              Apply
+                            </button>
+                          </div>
+                          {promoError ? (
+                            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200">
+                              {promoError}
+                            </p>
+                          ) : null}
+                        </div>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+                </div>
+
                 {billingError ? (
                   <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200">
                     {billingError}
@@ -3061,6 +3230,8 @@ export default function DistanceVisualizer() {
                     getAuthToken={getAuthToken}
                     userName={user.name}
                     userEmail={user.email}
+                    amountPaise={checkoutAmountPaise}
+                    promoCode={appliedPromo?.valid && !appliedPromo.freePro ? appliedPromo.code : undefined}
                     onStart={() => {
                       setBillingStatus("redirecting");
                       setBillingError(undefined);

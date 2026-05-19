@@ -4,7 +4,6 @@ import { getAdminDb } from "@/app/lib/firebaseAdmin";
 import {
   getRazorpay,
   isValidRazorpaySignature,
-  PRO_MONTHLY_AMOUNT_PAISE,
 } from "@/app/lib/razorpayOrder";
 import { normalizeSubscription } from "@/app/lib/subscription";
 
@@ -65,14 +64,27 @@ export async function POST(request: Request) {
       return Response.json({ error: "Razorpay order does not belong to this user." }, { status: 403 });
     }
 
-    const successfulPayment = payment.status === "captured" || payment.status === "authorized";
+    if (order.notes?.product !== "routevision-pro" || order.notes?.plan !== "pro") {
+      console.warn("[Razorpay] Rejected payment for unexpected order metadata", {
+        uid: user.uid,
+        orderId: body.razorpay_order_id,
+        product: order.notes?.product ?? null,
+        plan: order.notes?.plan ?? null,
+      });
+      return Response.json({ error: "Razorpay order is not a RouteVision Pro order." }, { status: 400 });
+    }
 
-    if (Number(order.amount) < PRO_MONTHLY_AMOUNT_PAISE || !successfulPayment) {
+    const successfulPayment = payment.status === "captured" || payment.status === "authorized";
+    const orderAmount = Number(order.amount);
+    const paymentAmount = Number(payment.amount);
+
+    if (orderAmount < 100 || paymentAmount !== orderAmount || !successfulPayment) {
       console.warn("[Razorpay] Rejected unsuccessful or under-amount payment", {
         uid: user.uid,
         orderId: body.razorpay_order_id,
         paymentId: body.razorpay_payment_id,
-        orderAmount: order.amount,
+        orderAmount,
+        paymentAmount,
         paymentStatus: payment.status,
       });
       return Response.json({ error: "Payment is not successful for the Pro amount." }, { status: 400 });
@@ -110,6 +122,8 @@ export async function POST(request: Request) {
             laneLimit: null,
             razorpayOrderId: body.razorpay_order_id,
             razorpayPaymentId: body.razorpay_payment_id,
+            promoCode: order.notes?.promoCode || null,
+            discountPercentage: Number(order.notes?.discountPercentage ?? 0),
             premiumActivatedAt,
             paymentDate: premiumActivatedAt,
             updatedAt: FieldValue.serverTimestamp(),
@@ -133,6 +147,7 @@ export async function POST(request: Request) {
       orderId: body.razorpay_order_id,
       paymentId: body.razorpay_payment_id,
       paymentStatus: payment.status,
+      promoCode: order.notes?.promoCode || null,
     });
 
     return Response.json({ success: true });

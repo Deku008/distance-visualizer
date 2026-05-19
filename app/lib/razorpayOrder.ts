@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 import Razorpay from "razorpay";
+import { PRO_PRICE_PAISE } from "@/app/lib/subscription";
 
 let razorpay: Razorpay | undefined;
 
-export const PRO_MONTHLY_AMOUNT_PAISE = 10000;
+export const PRO_MONTHLY_AMOUNT_PAISE = PRO_PRICE_PAISE;
 export const PRO_MONTHLY_CURRENCY = "INR";
 
 export function getRazorpayKeyId() {

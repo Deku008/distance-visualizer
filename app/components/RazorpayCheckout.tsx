@@ -55,6 +55,8 @@ type RazorpayCheckoutProps = {
   getAuthToken: (forceRefresh?: boolean) => Promise<string>;
   userName: string;
   userEmail: string;
+  amountPaise: number;
+  promoCode?: string;
   onError: (message: string) => void;
   onStart: () => void;
   onClose: () => void;
@@ -110,6 +112,8 @@ export default function RazorpayCheckout({
   getAuthToken,
   userName,
   userEmail,
+  amountPaise,
+  promoCode,
   onError,
   onStart,
   onClose,
@@ -194,7 +198,7 @@ export default function RazorpayCheckout({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ amount: 10000, currency: "INR" }),
+        body: JSON.stringify({ amount: amountPaise, currency: "INR", promoCode }),
       });
       const order = (await orderResponse.json()) as {
         order_id?: string;
@@ -220,7 +224,7 @@ export default function RazorpayCheckout({
       const checkout = new window.Razorpay({
         key,
         name: "RouteVision Pro",
-        description: "₹100/month subscription-style upgrade",
+        description: promoCode ? `RouteVision Pro with ${promoCode}` : "₹100/month subscription-style upgrade",
         order_id: order.order_id,
         amount: order.amount,
         currency: order.currency,
