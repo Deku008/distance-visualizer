@@ -2218,39 +2218,8 @@ export default function DistanceVisualizer() {
       </div>
 
       <div
-        className={`grid grid-cols-3 gap-3 overflow-hidden border-b border-slate-200/70 transition-all duration-300 ease-out dark:border-white/10 ${
-          dashboardCollapsed ? "max-h-0 border-b-0 p-0 opacity-0" : "max-h-40 p-5 opacity-100"
-        }`}
-      >
-        <motion.div
-          whileHover={liquidHover}
-          transition={springTransition}
-          className="liquid-card rounded-[1.35rem] p-4 text-slate-950 dark:text-white"
-        >
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Active lanes</p>
-          <p className="mt-2 text-3xl font-semibold">{visibleRoutes.length}</p>
-        </motion.div>
-        <motion.div
-          whileHover={liquidHover}
-          transition={springTransition}
-          className="liquid-card rounded-[1.35rem] p-4 text-blue-950 dark:text-cyan-100"
-        >
-          <p className="text-xs font-medium text-blue-700 dark:text-cyan-300">Distance</p>
-          <p className="mt-2 text-xl font-semibold">{formatDistance(totalTravelDistance)}</p>
-        </motion.div>
-        <motion.div
-          whileHover={liquidHover}
-          transition={springTransition}
-          className="liquid-card rounded-[1.35rem] p-4 text-emerald-950 dark:text-emerald-100"
-        >
-          <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Time</p>
-          <p className="mt-2 text-xl font-semibold">{formatTime(totalTravelTime)}</p>
-        </motion.div>
-      </div>
-
-      <div
         className={`${activePanel === "plan" ? "flex" : "hidden"} liquid-scroll flex-1 flex-col overflow-y-auto transition-all duration-300 ${
-          dashboardCollapsed ? "space-y-4 p-3" : "space-y-6 p-5"
+          dashboardCollapsed ? "space-y-4 p-3" : "space-y-5 p-5 pt-4"
         }`}
       >
         <section className="space-y-4">
