@@ -7,13 +7,11 @@ export const PRO_MONTHLY_AMOUNT_PAISE = 10000;
 export const PRO_MONTHLY_CURRENCY = "INR";
 
 export function getRazorpayKeyId() {
-  const keyId = process.env.RAZORPAY_KEY_ID ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-
-  if (!keyId) {
-    throw new Error("RAZORPAY_KEY_ID is not configured.");
+  if (!process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID) {
+    throw new Error("NEXT_PUBLIC_RAZORPAY_KEY_ID is not configured.");
   }
 
-  return keyId;
+  return process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
 }
 
 export function getRazorpayKeySecret() {
@@ -38,14 +36,27 @@ export function getRazorpay() {
 }
 
 export function isValidRazorpaySignature(orderId: string, paymentId: string, signature: string) {
+  if (!orderId || !paymentId || !signature) {
+    return false;
+  }
+
   const expectedSignature = crypto
     .createHmac("sha256", getRazorpayKeySecret())
     .update(`${orderId}|${paymentId}`)
     .digest("hex");
 
-  if (expectedSignature.length !== signature.length) {
+  const hexSignaturePattern = /^[a-f0-9]{64}$/i;
+
+  if (!hexSignaturePattern.test(expectedSignature) || !hexSignaturePattern.test(signature)) {
     return false;
   }
 
-  return crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature));
+  const expectedBuffer = Buffer.from(expectedSignature, "hex");
+  const receivedBuffer = Buffer.from(signature, "hex");
+
+  if (expectedBuffer.length !== receivedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
 }

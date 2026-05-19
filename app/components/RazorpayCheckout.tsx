@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Crown } from "lucide-react";
 
 type RazorpayCheckoutResponse = {
@@ -114,6 +115,9 @@ export default function RazorpayCheckout({
   onClose,
   onSuccess,
 }: RazorpayCheckoutProps) {
+  const [checkoutOpening, setCheckoutOpening] = useState(false);
+  const checkoutBusy = checkoutOpening || billingStatus === "redirecting" || billingStatus === "loading";
+
   const fetchWithFirebaseAuth = async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const run = async (forceRefresh: boolean) => {
       const token = await getAuthToken(forceRefresh);
@@ -173,6 +177,12 @@ export default function RazorpayCheckout({
   };
 
   const startCheckout = async () => {
+    if (checkoutBusy) {
+      return;
+    }
+
+    setCheckoutOpening(true);
+
     try {
       onStart();
       console.log("[Razorpay] Loading Standard Checkout");
@@ -229,6 +239,7 @@ export default function RazorpayCheckout({
         modal: {
           ondismiss: () => {
             console.log("[Razorpay] Checkout modal closed");
+            setCheckoutOpening(false);
             onClose();
           },
         },
@@ -258,16 +269,20 @@ export default function RazorpayCheckout({
             await onSuccess();
           } catch (error) {
             onError(error instanceof Error ? error.message : "Unable to verify Razorpay payment.");
+          } finally {
+            setCheckoutOpening(false);
           }
         },
       });
 
       checkout.on("payment.failed", (failure) => {
         console.warn("[Razorpay] Payment failed", failure);
+        setCheckoutOpening(false);
         onError(failure.error?.description ?? failure.error?.reason ?? "Razorpay payment failed.");
       });
       checkout.open();
     } catch (error) {
+      setCheckoutOpening(false);
       onError(error instanceof Error ? error.message : "Unable to open Razorpay checkout.");
     }
   };
@@ -276,13 +291,11 @@ export default function RazorpayCheckout({
     <button
       type="button"
       onClick={() => void startCheckout()}
-      disabled={billingStatus === "redirecting" || billingStatus === "loading"}
+      disabled={checkoutBusy}
       className="liquid-button-primary flex h-12 items-center justify-center gap-2 rounded-[1.15rem] text-sm font-semibold text-white transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60"
     >
       <Crown className="size-4" />
-      {billingStatus === "redirecting" || billingStatus === "loading"
-        ? "Opening Razorpay..."
-        : "Upgrade with Razorpay"}
+      {checkoutBusy ? "Opening Razorpay..." : "Upgrade with Razorpay"}
     </button>
   );
 }
