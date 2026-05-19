@@ -822,6 +822,7 @@ export default function DistanceVisualizer() {
   const [billingStatus, setBillingStatus] = useState<BillingStatus>("idle");
   const [billingError, setBillingError] = useState<string>();
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [premiumBenefitsOpen, setPremiumBenefitsOpen] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const requestedRouteIds = useRef(new Set<number>());
   const pendingDeletedRouteIds = useRef(new Set<number>());
@@ -2025,16 +2026,39 @@ export default function DistanceVisualizer() {
         }`}
       >
         <div className="liquid-glow-line absolute inset-x-0 top-0 h-1" />
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="min-w-0">
+          <div className="flex items-center justify-between gap-3">
             <p
-              className={`flex items-center gap-2 text-xs font-semibold uppercase text-blue-600 transition-all duration-300 dark:text-cyan-300 ${
+              className={`flex min-w-0 items-center gap-2 text-xs font-semibold uppercase text-blue-600 transition-all duration-300 dark:text-cyan-300 ${
                 dashboardCollapsed ? "tracking-[0.14em]" : "tracking-[0.24em]"
               }`}
             >
-              <Sparkles className="size-3.5" />
-              RouteVision
+              <Sparkles className="size-3.5 shrink-0" />
+              <span className="truncate">RouteVision</span>
             </p>
+            <div className="liquid-card flex shrink-0 items-center gap-1.5 rounded-[1.25rem] p-1.5">
+              <button
+                type="button"
+                aria-label={dashboardCollapsed ? "Expand dashboard panel" : "Minimize dashboard panel"}
+                onClick={() => setDashboardCollapsed((currentValue) => !currentValue)}
+                className="liquid-button grid size-10 place-items-center rounded-[1.05rem] text-slate-600 transition duration-300 hover:-translate-y-0.5 dark:text-slate-200"
+              >
+                {dashboardCollapsed ? <ChevronDown className="size-5" /> : <ChevronUp className="size-5" />}
+              </button>
+              <button
+                type="button"
+                aria-label={mapFullscreen ? "Exit fullscreen map" : "Open fullscreen map"}
+                onClick={() => {
+                  setMapFullscreen((currentValue) => !currentValue);
+                  setSidebarOpen(false);
+                }}
+                className="liquid-button grid size-10 place-items-center rounded-[1.05rem] text-slate-600 transition duration-300 hover:-translate-y-0.5 dark:text-slate-200"
+              >
+                {mapFullscreen ? <Minimize2 className="size-5" /> : <Maximize2 className="size-5" />}
+              </button>
+            </div>
+          </div>
+          <div>
             <h1
               className={`font-semibold leading-tight tracking-tight text-slate-950 transition-all duration-300 dark:text-white ${
                 dashboardCollapsed ? "mt-1 text-lg" : "mt-2 text-[2rem]"
@@ -2075,7 +2099,7 @@ export default function DistanceVisualizer() {
                 </div>
                 <button
                   type="button"
-                  onClick={isPro ? openSubscriptionStatus : openUpgradeModal}
+                  onClick={isPro ? () => setPremiumBenefitsOpen(true) : openUpgradeModal}
                   className={`ml-auto flex shrink-0 items-center gap-1.5 rounded-[1rem] px-2.5 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 ${
                     isPro
                       ? "premium-badge-glow border border-emerald-300/70 bg-emerald-400/15 text-emerald-700 dark:border-emerald-300/30 dark:bg-emerald-300/10 dark:text-emerald-200"
@@ -2095,27 +2119,6 @@ export default function DistanceVisualizer() {
                 </button>
               </div>
             </div>
-          </div>
-          <div className="liquid-card flex shrink-0 items-center gap-2 rounded-[1.35rem] p-1.5">
-            <button
-              type="button"
-              aria-label={dashboardCollapsed ? "Expand dashboard panel" : "Minimize dashboard panel"}
-              onClick={() => setDashboardCollapsed((currentValue) => !currentValue)}
-              className="liquid-button grid size-10 place-items-center rounded-[1.15rem] text-slate-600 transition duration-300 hover:-translate-y-0.5 dark:text-slate-200"
-            >
-              {dashboardCollapsed ? <ChevronDown className="size-5" /> : <ChevronUp className="size-5" />}
-            </button>
-            <button
-              type="button"
-              aria-label={mapFullscreen ? "Exit fullscreen map" : "Open fullscreen map"}
-              onClick={() => {
-                setMapFullscreen((currentValue) => !currentValue);
-                setSidebarOpen(false);
-              }}
-              className="liquid-button grid size-10 place-items-center rounded-[1.15rem] text-slate-600 transition duration-300 hover:-translate-y-0.5 dark:text-slate-200"
-            >
-              {mapFullscreen ? <Minimize2 className="size-5" /> : <Maximize2 className="size-5" />}
-            </button>
           </div>
         </div>
         <div className={`${dashboardCollapsed ? "mt-3" : "mt-4"} flex flex-wrap items-center gap-2 transition-all duration-300`}>
@@ -2156,65 +2159,48 @@ export default function DistanceVisualizer() {
                   ? cloudError ?? "Cloud sync is unavailable."
                   : "Cloud sync active across devices"}
         </div>
-        <div
-          className={`liquid-card rounded-[1.25rem] px-3 transition-all duration-300 ${
-            isPro ? "premium-glass" : ""
-          } ${
-            dashboardCollapsed ? "mt-0 max-h-0 overflow-hidden py-0 opacity-0" : "mt-3 max-h-32 py-3 opacity-100"
-          }`}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-950 dark:text-white">
-                {isPro ? (
-                  <>
-                    <Crown className="size-3.5 text-emerald-600 dark:text-emerald-300" />
-                    Unlimited Pro lanes
-                  </>
-                ) : (
-                  <>
-                    <Route className="size-3.5 text-blue-600 dark:text-cyan-300" />
-                    {freeLaneUsage}/{FREE_LANE_LIMIT} free lanes used
-                  </>
-                )}
-              </p>
-              <p className="mt-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                {isPro
-                  ? "Advanced analytics, exports, and priority sync are active."
-                  : `${remainingFreeLanes} free ${remainingFreeLanes === 1 ? "lane" : "lanes"} remaining before Pro`}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={isPro ? openSubscriptionStatus : openUpgradeModal}
-              className={`flex shrink-0 items-center gap-1.5 rounded-[1rem] px-3 py-2 text-xs font-semibold transition hover:-translate-y-0.5 ${
-                isPro
-                  ? "liquid-chip text-blue-700 dark:text-cyan-200"
-                  : "liquid-button-primary text-white"
-              }`}
-            >
-              {isPro ? <CreditCard className="size-3.5" /> : <Crown className="size-3.5" />}
-              {isPro ? "Status" : "Upgrade Pro"}
-            </button>
-          </div>
+        {!isPro ? (
           <div
-            role="progressbar"
-            aria-label={isPro ? "Pro lane usage" : `${freeLaneUsage} of ${FREE_LANE_LIMIT} free lanes used`}
-            aria-valuemin={0}
-            aria-valuemax={FREE_LANE_LIMIT}
-            aria-valuenow={isPro ? FREE_LANE_LIMIT : freeLaneUsage}
-            className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-200/70 dark:bg-white/10"
+            className={`liquid-card rounded-[1.25rem] px-3 transition-all duration-300 ${
+              dashboardCollapsed ? "mt-0 max-h-0 overflow-hidden py-0 opacity-0" : "mt-3 max-h-32 py-3 opacity-100"
+            }`}
           >
-            <motion.div
-              className={`h-full rounded-full ${
-                isPro ? "bg-emerald-400" : laneLimitReached ? "bg-orange-400" : "bg-blue-500"
-              }`}
-              initial={false}
-              animate={{ width: `${laneUsagePercent}%` }}
-              transition={springTransition}
-            />
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-950 dark:text-white">
+                  <Route className="size-3.5 text-blue-600 dark:text-cyan-300" />
+                  {freeLaneUsage}/{FREE_LANE_LIMIT} free lanes used
+                </p>
+                <p className="mt-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  {remainingFreeLanes} free {remainingFreeLanes === 1 ? "lane" : "lanes"} remaining before Pro
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={openUpgradeModal}
+                className="liquid-button-primary flex shrink-0 items-center gap-1.5 rounded-[1rem] px-3 py-2 text-xs font-semibold text-white transition hover:-translate-y-0.5"
+              >
+                <Crown className="size-3.5" />
+                Upgrade Pro
+              </button>
+            </div>
+            <div
+              role="progressbar"
+              aria-label={`${freeLaneUsage} of ${FREE_LANE_LIMIT} free lanes used`}
+              aria-valuemin={0}
+              aria-valuemax={FREE_LANE_LIMIT}
+              aria-valuenow={freeLaneUsage}
+              className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-200/70 dark:bg-white/10"
+            >
+              <motion.div
+                className={`h-full rounded-full ${laneLimitReached ? "bg-orange-400" : "bg-blue-500"}`}
+                initial={false}
+                animate={{ width: `${laneUsagePercent}%` }}
+                transition={springTransition}
+              />
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
 
       <div
@@ -2866,6 +2852,111 @@ export default function DistanceVisualizer() {
           </div>
         </div>
       ) : null}
+
+      <AnimatePresence>
+        {premiumBenefitsOpen ? (
+          <motion.div
+            key="premium-benefits"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            className="fixed inset-0 z-[1250] grid place-items-center overflow-y-auto bg-slate-950/62 p-4 backdrop-blur-2xl"
+            onClick={() => setPremiumBenefitsOpen(false)}
+          >
+            <motion.section
+              initial={{ opacity: 0, y: 24, scale: 0.95, filter: "blur(8px)" }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              transition={springTransition}
+              className="liquid-modal premium-modal-aura w-full max-w-lg overflow-hidden rounded-[2rem]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="relative overflow-hidden border-b border-white/25 px-6 py-5 dark:border-white/10">
+                <div className="liquid-glow-line absolute inset-x-0 top-0 h-1" />
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700 dark:text-emerald-200">
+                      <Crown className="size-4" />
+                      Premium active
+                    </p>
+                    <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
+                      RouteVision Pro benefits
+                    </h2>
+                    <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                      Your workspace has the full Pro toolkit enabled for larger lane planning.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Close premium benefits"
+                    onClick={() => setPremiumBenefitsOpen(false)}
+                    className="liquid-button grid size-10 shrink-0 place-items-center rounded-[1.15rem] text-slate-700 transition hover:-translate-y-0.5 dark:text-slate-200"
+                  >
+                    <X className="size-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-5 p-6">
+                <div className="premium-glass rounded-[1.5rem] p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                        Current plan
+                      </p>
+                      <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
+                        Pro
+                      </p>
+                    </div>
+                    <span className="premium-badge-glow rounded-full border border-emerald-300/60 bg-emerald-400/15 px-3 py-2 text-xs font-semibold text-emerald-700 dark:border-emerald-300/30 dark:text-emerald-200">
+                      Active
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  {[
+                    ["Unlimited lanes", "Save and sync every lane you need without the free-plan cap."],
+                    ["Advanced analytics", "Unlock route comparisons, distance totals, averages, and planning insights."],
+                    ["Exports", "Download map snapshots and route spreadsheets for sharing or reporting."],
+                    ["Priority cloud sync", "Keep route data synced faster and reliably across devices."],
+                  ].map(([label, detail]) => (
+                    <div key={label} className="liquid-card flex gap-3 rounded-[1.35rem] p-3">
+                      <span className="liquid-button grid size-10 shrink-0 place-items-center rounded-[1rem] text-emerald-700 dark:text-emerald-200">
+                        <Check className="size-4" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-950 dark:text-white">{label}</p>
+                        <p className="mt-0.5 text-xs font-medium text-slate-500 dark:text-slate-400">{detail}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={openSubscriptionStatus}
+                    className="liquid-button flex h-12 items-center justify-center gap-2 rounded-[1.15rem] text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 dark:text-slate-200"
+                  >
+                    <CreditCard className="size-4" />
+                    Refresh status
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPremiumBenefitsOpen(false)}
+                    className="liquid-button-primary flex h-12 items-center justify-center gap-2 rounded-[1.15rem] text-sm font-semibold text-white transition hover:-translate-y-0.5"
+                  >
+                    <Sparkles className="size-4" />
+                    Continue planning
+                  </button>
+                </div>
+              </div>
+            </motion.section>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {upgradeModalOpen ? (
