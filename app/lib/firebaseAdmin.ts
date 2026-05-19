@@ -2,6 +2,18 @@ import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
+export class ApiAuthError extends Error {
+  status: number;
+  code: string;
+
+  constructor(message: string, status = 401, code = "AUTH_REQUIRED") {
+    super(message);
+    this.name = "ApiAuthError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 type ServiceAccountConfig = {
   projectId?: string;
   clientEmail?: string;
@@ -115,12 +127,39 @@ export async function requireFirebaseUser(request: Request) {
   const match = authorization?.match(/^Bearer (.+)$/i);
 
   if (!match) {
-    throw new Error("Authentication is required.");
+    throw new ApiAuthError("Please sign in to continue.", 401, "AUTH_REQUIRED");
   }
 
   try {
     return await getAdminAuth().verifyIdToken(match[1]);
-  } catch {
-    throw new Error("Invalid or expired Firebase authentication token.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : "";
+    const tokenExpired =
+      code === "auth/id-token-expired" ||
+      message.includes("expired") ||
+      message.includes("auth/id-token-expired");
+    throw new ApiAuthError(
+      tokenExpired ? "Your session expired. Refreshing sign-in..." : "Invalid Firebase authentication token.",
+      401,
+      tokenExpired ? "TOKEN_EXPIRED" : "INVALID_TOKEN",
+    );
   }
+}
+
+export function authErrorResponse(error: unknown) {
+  if (error instanceof ApiAuthError) {
+    return Response.json(
+      {
+        error: error.message,
+        code: error.code,
+      },
+      { status: error.status },
+    );
+  }
+
+  return undefined;
 }

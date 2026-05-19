@@ -1,5 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { getAdminDb, requireFirebaseUser } from "@/app/lib/firebaseAdmin";
+import { withFirebaseUser } from "@/app/lib/apiAuth";
+import { getAdminDb } from "@/app/lib/firebaseAdmin";
 import { FREE_LANE_LIMIT, normalizeSubscription } from "@/app/lib/subscription";
 
 function isRoutePayload(value: unknown): value is Record<string, unknown> {
@@ -19,8 +20,7 @@ function isRoutePayload(value: unknown): value is Record<string, unknown> {
 }
 
 export async function POST(request: Request) {
-  try {
-    const user = await requireFirebaseUser(request);
+  return withFirebaseUser(request, async (user) => {
     const body = (await request.json()) as { route?: unknown };
 
     if (!isRoutePayload(body.route)) {
@@ -96,10 +96,10 @@ export async function POST(request: Request) {
       freeLaneLimit: FREE_LANE_LIMIT,
       remainingFreeLanes: result.subscription.isPro ? null : Math.max(FREE_LANE_LIMIT - result.laneCount, 0),
     });
-  } catch (error) {
-    return Response.json(
+  }).catch((error) =>
+    Response.json(
       { error: error instanceof Error ? error.message : "Unable to save lane." },
-      { status: 401 },
-    );
-  }
+      { status: 500 },
+    ),
+  );
 }

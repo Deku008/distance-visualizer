@@ -123,6 +123,7 @@ const LABEL_PRESETS = ["Home", "Factory", "Warehouse", "Shop", "Office"];
 const INITIAL_ROUTES: RouteEntry[] = [];
 const DASHBOARD_COLLAPSED_SESSION_KEY = "india-distance-dashboard-collapsed";
 const AUTH_REDIRECT_PENDING_SESSION_KEY = "routevision-google-redirect-pending";
+const FIREBASE_TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const springTransition = { type: "spring" as const, stiffness: 300, damping: 28, mass: 0.72 };
 const softSpringTransition = { type: "spring" as const, stiffness: 220, damping: 26, mass: 0.8 };
 const liquidHover = { y: -4, scale: 1.01 };
@@ -133,6 +134,11 @@ type DirectionsResponse = {
   distanceMeters: number | null;
   durationSeconds: number | null;
   error?: string;
+};
+
+type ApiErrorResponse = {
+  error?: string;
+  code?: string;
 };
 
 type PlaceSearchResult = Location & {
@@ -815,7 +821,7 @@ export default function DistanceVisualizer() {
     window.setTimeout(() => setToast(undefined), 3200);
   }, []);
 
-  const getAuthToken = useCallback(async () => {
+  const getAuthToken = useCallback(async (forceRefresh = false) => {
     const auth = getFirebaseAuth();
     const currentUser = auth?.currentUser;
 
@@ -823,12 +829,73 @@ export default function DistanceVisualizer() {
       throw new Error("Please sign in again to continue.");
     }
 
-    return currentUser.getIdToken();
+    const tokenResult = await currentUser.getIdTokenResult(forceRefresh);
+    const expiresAt = Date.parse(tokenResult.expirationTime);
+    const shouldRefresh =
+      !forceRefresh &&
+      (!Number.isFinite(expiresAt) || expiresAt - Date.now() <= FIREBASE_TOKEN_REFRESH_BUFFER_MS);
+
+    if (!shouldRefresh) {
+      return tokenResult.token;
+    }
+
+    console.info("[Firebase Auth] Refreshing ID token before protected API request");
+    return currentUser.getIdToken(true);
   }, []);
+
+  const fetchWithFirebaseAuth = useCallback(
+    async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const run = async (forceRefresh: boolean) => {
+        const token = await getAuthToken(forceRefresh);
+        const headers = new Headers(init.headers);
+        headers.set("Authorization", `Bearer ${token}`);
+
+        return fetch(input, {
+          ...init,
+          headers,
+        });
+      };
+
+      let response = await run(false);
+
+      if (response.status !== 401) {
+        return response;
+      }
+
+      const data = (await response.clone().json().catch(() => ({}))) as ApiErrorResponse;
+      const refreshableTokenError = data.code === "TOKEN_EXPIRED" || data.code === "INVALID_TOKEN";
+
+      if (!refreshableTokenError) {
+        return response;
+      }
+
+      console.info("[Firebase Auth] Refreshing ID token after API auth failure", { code: data.code });
+      response = await run(true);
+
+      return response;
+    },
+    [getAuthToken],
+  );
 
   const openUpgradeModal = useCallback(() => {
     setBillingError(undefined);
     setUpgradeModalOpen(true);
+  }, []);
+
+  const resetSignedOutState = useCallback((preserveAuthenticating = false) => {
+    setUser(undefined);
+    setRoutes(INITIAL_ROUTES);
+    setLabelSuggestions([]);
+    setCloudStatus((currentStatus) =>
+      preserveAuthenticating && currentStatus === "authenticating" ? currentStatus : "idle",
+    );
+    setSavedAt(undefined);
+    setSubscription(FREE_SUBSCRIPTION);
+    setUpgradeModalOpen(false);
+    setBillingStatus("idle");
+    setBillingError(undefined);
+    pendingDeletedRouteIds.current = new Set();
+    setDeletingRouteIds(new Set());
   }, []);
 
   const refreshSubscription = useCallback(async () => {
@@ -840,10 +907,7 @@ export default function DistanceVisualizer() {
     setBillingStatus("loading");
 
     try {
-      const token = await getAuthToken();
-      const response = await fetch("/api/subscription/status", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetchWithFirebaseAuth("/api/subscription/status");
       const data = (await response.json()) as {
         subscription?: SubscriptionSnapshot;
         error?: string;
@@ -859,7 +923,7 @@ export default function DistanceVisualizer() {
       setBillingStatus("error");
       setBillingError(error instanceof Error ? error.message : "Unable to load subscription.");
     }
-  }, [getAuthToken, user]);
+  }, [fetchWithFirebaseAuth, user]);
 
   useEffect(() => {
     window.sessionStorage.setItem(DASHBOARD_COLLAPSED_SESSION_KEY, String(dashboardCollapsed));
@@ -901,6 +965,20 @@ export default function DistanceVisualizer() {
       return () => window.clearTimeout(timer);
     }
 
+    let authStateResolved = false;
+    const authReadyFallbackTimer = window.setTimeout(() => {
+      if (authStateResolved) {
+        return;
+      }
+
+      authStateResolved = true;
+      setAuthLoading(false);
+
+      if (!auth.currentUser) {
+        resetSignedOutState();
+      }
+    }, 8000);
+
     void setPersistence(auth, browserLocalPersistence).catch(() => undefined);
 
     if (window.sessionStorage.getItem(AUTH_REDIRECT_PENDING_SESSION_KEY) === "true") {
@@ -928,21 +1006,13 @@ export default function DistanceVisualizer() {
         showToast("Google sign-in could not finish.", "error");
       });
 
-    return onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      authStateResolved = true;
+      window.clearTimeout(authReadyFallbackTimer);
       setAuthLoading(false);
 
       if (!firebaseUser) {
-        setUser(undefined);
-        setRoutes(INITIAL_ROUTES);
-        setLabelSuggestions([]);
-        setCloudStatus((currentStatus) => (currentStatus === "authenticating" ? currentStatus : "idle"));
-        setSavedAt(undefined);
-        setSubscription(FREE_SUBSCRIPTION);
-        setUpgradeModalOpen(false);
-        setBillingStatus("idle");
-        setBillingError(undefined);
-        pendingDeletedRouteIds.current = new Set();
-        setDeletingRouteIds(new Set());
+        resetSignedOutState(true);
         return;
       }
 
@@ -954,7 +1024,12 @@ export default function DistanceVisualizer() {
       });
       setAvatarFailed(false);
     });
-  }, [showToast]);
+
+    return () => {
+      window.clearTimeout(authReadyFallbackTimer);
+      unsubscribe();
+    };
+  }, [resetSignedOutState, showToast]);
 
   useEffect(() => {
     void refreshSubscription();
@@ -1256,11 +1331,9 @@ export default function DistanceVisualizer() {
   };
 
   const saveLaneOnServer = async (route: RouteEntry) => {
-    const token = await getAuthToken();
-    const response = await fetch("/api/lanes", {
+    const response = await fetchWithFirebaseAuth("/api/lanes", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ route }),

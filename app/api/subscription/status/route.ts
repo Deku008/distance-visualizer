@@ -1,10 +1,10 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { getAdminDb, requireFirebaseUser } from "@/app/lib/firebaseAdmin";
+import { withFirebaseUser } from "@/app/lib/apiAuth";
+import { getAdminDb } from "@/app/lib/firebaseAdmin";
 import { FREE_LANE_LIMIT, normalizeSubscription } from "@/app/lib/subscription";
 
 export async function GET(request: Request) {
-  try {
-    const user = await requireFirebaseUser(request);
+  return withFirebaseUser(request, async (user) => {
     const db = getAdminDb();
     const userRef = db.collection("users").doc(user.uid);
     const [userSnapshot, routesSnapshot] = await Promise.all([
@@ -33,10 +33,10 @@ export async function GET(request: Request) {
       freeLaneLimit: FREE_LANE_LIMIT,
       remainingFreeLanes: subscription.isPro ? null : Math.max(FREE_LANE_LIMIT - laneCount, 0),
     });
-  } catch (error) {
-    return Response.json(
+  }).catch((error) =>
+    Response.json(
       { error: error instanceof Error ? error.message : "Unable to load subscription." },
-      { status: 401 },
-    );
-  }
+      { status: 500 },
+    ),
+  );
 }

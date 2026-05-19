@@ -1,5 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { getAdminDb, requireFirebaseUser } from "@/app/lib/firebaseAdmin";
+import { withFirebaseUser } from "@/app/lib/apiAuth";
+import { getAdminDb } from "@/app/lib/firebaseAdmin";
 import {
   getRazorpay,
   PRO_MONTHLY_AMOUNT_PAISE,
@@ -7,8 +8,7 @@ import {
 } from "@/app/lib/razorpayOrder";
 
 export async function POST(request: Request) {
-  try {
-    const user = await requireFirebaseUser(request);
+  return withFirebaseUser(request, async (user) => {
     const body = (await request.json().catch(() => ({}))) as {
       amount?: number;
       currency?: string;
@@ -55,10 +55,10 @@ export async function POST(request: Request) {
       amount: order.amount,
       currency: order.currency,
     });
-  } catch (error) {
-    return Response.json(
+  }).catch((error) =>
+    Response.json(
       { error: error instanceof Error ? error.message : "Unable to create Razorpay order." },
       { status: 500 },
-    );
-  }
+    ),
+  );
 }

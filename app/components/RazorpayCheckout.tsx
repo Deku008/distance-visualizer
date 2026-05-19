@@ -51,13 +51,18 @@ declare global {
 
 type RazorpayCheckoutProps = {
   billingStatus: "idle" | "loading" | "redirecting" | "error";
-  getAuthToken: () => Promise<string>;
+  getAuthToken: (forceRefresh?: boolean) => Promise<string>;
   userName: string;
   userEmail: string;
   onError: (message: string) => void;
   onStart: () => void;
   onClose: () => void;
   onSuccess: () => Promise<void> | void;
+};
+
+type ApiErrorResponse = {
+  error?: string;
+  code?: string;
 };
 
 async function loadRazorpayCheckout() {
@@ -97,18 +102,47 @@ export default function RazorpayCheckout({
   onClose,
   onSuccess,
 }: RazorpayCheckoutProps) {
+  const fetchWithFirebaseAuth = async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const run = async (forceRefresh: boolean) => {
+      const token = await getAuthToken(forceRefresh);
+      const headers = new Headers(init.headers);
+      headers.set("Authorization", `Bearer ${token}`);
+
+      return fetch(input, {
+        ...init,
+        headers,
+      });
+    };
+
+    let response = await run(false);
+
+    if (response.status !== 401) {
+      return response;
+    }
+
+    const data = (await response.clone().json().catch(() => ({}))) as ApiErrorResponse;
+    const refreshableTokenError = data.code === "TOKEN_EXPIRED" || data.code === "INVALID_TOKEN";
+
+    if (!refreshableTokenError) {
+      return response;
+    }
+
+    console.info("[Firebase Auth] Refreshing ID token for Razorpay API request", { code: data.code });
+    response = await run(true);
+
+    return response;
+  };
+
   const startCheckout = async () => {
     try {
       onStart();
       console.log("[Razorpay] Loading Standard Checkout");
       await loadRazorpayCheckout();
 
-      const token = await getAuthToken();
       console.log("[Razorpay] Creating RouteVision Pro order");
-      const orderResponse = await fetch("/api/create-order", {
+      const orderResponse = await fetchWithFirebaseAuth("/api/create-order", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ amount: 10000, currency: "INR" }),
@@ -165,11 +199,9 @@ export default function RazorpayCheckout({
               orderId: paymentResponse.razorpay_order_id,
               paymentId: paymentResponse.razorpay_payment_id,
             });
-            const verifyToken = await getAuthToken();
-            const verifyResponse = await fetch("/api/verify-payment", {
+            const verifyResponse = await fetchWithFirebaseAuth("/api/verify-payment", {
               method: "POST",
               headers: {
-                Authorization: `Bearer ${verifyToken}`,
                 "Content-Type": "application/json",
               },
               body: JSON.stringify(paymentResponse),

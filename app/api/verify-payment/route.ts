@@ -1,5 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { getAdminDb, requireFirebaseUser } from "@/app/lib/firebaseAdmin";
+import { withFirebaseUser } from "@/app/lib/apiAuth";
+import { getAdminDb } from "@/app/lib/firebaseAdmin";
 import {
   getRazorpay,
   isValidRazorpaySignature,
@@ -7,8 +8,7 @@ import {
 } from "@/app/lib/razorpayOrder";
 
 export async function POST(request: Request) {
-  try {
-    const user = await requireFirebaseUser(request);
+  return withFirebaseUser(request, async (user) => {
     const body = (await request.json()) as {
       razorpay_order_id?: string;
       razorpay_payment_id?: string;
@@ -84,10 +84,10 @@ export async function POST(request: Request) {
     });
 
     return Response.json({ success: true });
-  } catch (error) {
-    return Response.json(
+  }).catch((error) =>
+    Response.json(
       { error: error instanceof Error ? error.message : "Unable to verify Razorpay payment." },
       { status: 500 },
-    );
-  }
+    ),
+  );
 }
