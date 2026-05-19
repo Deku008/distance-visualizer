@@ -22,9 +22,6 @@ type ServiceAccountConfig = {
   projectId?: string;
   clientEmail?: string;
   privateKey?: string;
-  project_id?: string;
-  client_email?: string;
-  private_key?: string;
 };
 
 type DecodedTokenPreview = {
@@ -57,23 +54,8 @@ function unwrapEnvValue(value: string) {
   return isWrapped ? trimmedValue.slice(1, -1).trim() : trimmedValue;
 }
 
-function decodeBase64Value(value: string) {
-  try {
-    return Buffer.from(unwrapEnvValue(value), "base64").toString("utf8").trim();
-  } catch {
-    return undefined;
-  }
-}
-
 function normalizePrivateKey(privateKey: string) {
-  const unwrappedKey = unwrapEnvValue(privateKey);
-  const decodedKey = unwrappedKey.includes("BEGIN PRIVATE KEY")
-    ? unwrappedKey
-    : decodeBase64Value(unwrappedKey) ?? unwrappedKey;
-  const normalizedKey = decodedKey
-    .replace(/\\\\r\\\\n/g, "\n")
-    .replace(/\\\\n/g, "\n")
-    .replace(/\\r\\n/g, "\n")
+  const normalizedKey = unwrapEnvValue(privateKey)
     .replace(/\\n/g, "\n")
     .replace(/\r\n/g, "\n")
     .trim();
@@ -87,50 +69,7 @@ function normalizePrivateKey(privateKey: string) {
   return normalizedKey;
 }
 
-function parseServiceAccountJson(encodedConfig: string) {
-  const normalizedConfig = unwrapEnvValue(encodedConfig);
-
-  try {
-    return JSON.parse(normalizedConfig) as ServiceAccountConfig;
-  } catch {
-    const decodedConfig = decodeBase64Value(normalizedConfig);
-
-    if (decodedConfig) {
-      try {
-        return JSON.parse(decodedConfig) as ServiceAccountConfig;
-      } catch {
-        // Fall through to the normalized error below.
-      }
-    }
-
-    throw new Error("FIREBASE_SERVICE_ACCOUNT_KEY must be valid JSON or base64-encoded JSON.");
-  }
-}
-
-function serviceAccountFromEnv(): ServiceAccountConfig | undefined {
-  const encodedConfig =
-    process.env.FIREBASE_SERVICE_ACCOUNT_KEY ?? process.env.FIREBASE_SERVICE_ACCOUNT_KEY_BASE64;
-
-  if (encodedConfig) {
-    const parsed = parseServiceAccountJson(encodedConfig);
-    const privateKey = parsed.privateKey ?? parsed.private_key;
-    const clientEmail = parsed.clientEmail ?? parsed.client_email;
-
-    return {
-      projectId: parsed.projectId ?? parsed.project_id,
-      clientEmail: clientEmail ? unwrapEnvValue(clientEmail) : undefined,
-      privateKey: privateKey ? normalizePrivateKey(privateKey) : undefined,
-    };
-  }
-
-  let privateKey: string | undefined;
-
-  if (process.env.FIREBASE_PRIVATE_KEY) {
-    privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
-  } else if (process.env.FIREBASE_PRIVATE_KEY_BASE64) {
-    privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY_BASE64);
-  }
-
+function serviceAccountFromEnv(): ServiceAccountConfig {
   return {
     projectId: process.env.FIREBASE_PROJECT_ID
       ? unwrapEnvValue(process.env.FIREBASE_PROJECT_ID)
@@ -138,11 +77,11 @@ function serviceAccountFromEnv(): ServiceAccountConfig | undefined {
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL
       ? unwrapEnvValue(process.env.FIREBASE_CLIENT_EMAIL)
       : undefined,
-    privateKey,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
   };
 }
 
-function validateServiceAccount(serviceAccount: ServiceAccountConfig | undefined) {
+function validateServiceAccount(serviceAccount: ServiceAccountConfig) {
   const missingFields = [
     ["FIREBASE_PROJECT_ID", serviceAccount?.projectId],
     ["FIREBASE_CLIENT_EMAIL", serviceAccount?.clientEmail],
@@ -152,6 +91,10 @@ function validateServiceAccount(serviceAccount: ServiceAccountConfig | undefined
     .map(([name]) => name);
 
   if (missingFields.length > 0) {
+    console.error("[Firebase Auth] Missing Firebase Admin environment variables", {
+      missingFields,
+      ...firebaseAdminEnvDebug(),
+    });
     throw new Error(`Firebase Admin credentials are missing: ${missingFields.join(", ")}.`);
   }
 
@@ -160,9 +103,9 @@ function validateServiceAccount(serviceAccount: ServiceAccountConfig | undefined
   }
 
   return {
-    projectId: serviceAccount?.projectId as string,
-    clientEmail: serviceAccount?.clientEmail as string,
-    privateKey: serviceAccount?.privateKey as string,
+    projectId: serviceAccount.projectId as string,
+    clientEmail: serviceAccount.clientEmail as string,
+    privateKey: normalizePrivateKey(serviceAccount.privateKey as string),
   };
 }
 
@@ -174,6 +117,17 @@ function maskServiceAccountEmail(clientEmail: string) {
   }
 
   return `${name.slice(0, 12)}...@${domain}`;
+}
+
+function firebaseAdminEnvDebug() {
+  return {
+    hasFirebaseProjectId: Boolean(process.env.FIREBASE_PROJECT_ID),
+    hasFirebaseClientEmail: Boolean(process.env.FIREBASE_CLIENT_EMAIL),
+    hasFirebasePrivateKey: Boolean(process.env.FIREBASE_PRIVATE_KEY),
+    privateKeyLength: process.env.FIREBASE_PRIVATE_KEY?.length ?? 0,
+    clientProjectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? null,
+    vercelEnvironment: process.env.VERCEL_ENV ?? null,
+  };
 }
 
 function validateProjectMatch(adminProjectId: string) {
@@ -218,10 +172,8 @@ function logAuthDebug(stage: string, details: Record<string, unknown>) {
 export function getFirebaseAdminApp(): App {
   assertServerOnly();
 
-  const existingApp = getApps()[0];
-
-  if (existingApp) {
-    return existingApp;
+  if (getApps().length) {
+    return getApps()[0];
   }
 
   const serviceAccount = validateServiceAccount(serviceAccountFromEnv());
@@ -229,19 +181,32 @@ export function getFirebaseAdminApp(): App {
 
   try {
     logAuthDebug("Initializing Admin SDK", {
+      ...firebaseAdminEnvDebug(),
       adminProjectId: serviceAccount.projectId,
-      clientProjectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? null,
       clientEmail: maskServiceAccountEmail(serviceAccount.clientEmail),
       existingApps: getApps().length,
       privateKeyLines: serviceAccount.privateKey.split("\n").length,
-      vercelEnvironment: process.env.VERCEL_ENV ?? null,
     });
 
-    return initializeApp({
+    const app = initializeApp({
       credential: cert(serviceAccount),
       projectId: serviceAccount.projectId,
     });
+
+    logAuthDebug("Admin SDK initialized successfully", {
+      ...firebaseAdminEnvDebug(),
+      adminProjectId: serviceAccount.projectId,
+      appName: app.name,
+      existingApps: getApps().length,
+    });
+
+    return app;
   } catch (error) {
+    console.error("[Firebase Auth] Admin SDK initialization failed", {
+      ...firebaseAdminEnvDebug(),
+      adminProjectId: serviceAccount.projectId,
+      errorMessage: error instanceof Error ? error.message : "Unknown initialization error.",
+    });
     throw new Error(
       `Firebase Admin initialization failed: ${
         error instanceof Error ? error.message : "Unknown initialization error."
