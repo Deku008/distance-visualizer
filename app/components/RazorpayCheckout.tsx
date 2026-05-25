@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Crown } from "lucide-react";
+import { trackEvent } from "@/app/lib/analytics";
 
 type RazorpayCheckoutResponse = {
   razorpay_order_id: string;
@@ -53,6 +54,7 @@ declare global {
 type RazorpayCheckoutProps = {
   billingStatus: "idle" | "loading" | "redirecting" | "error";
   getAuthToken: (forceRefresh?: boolean) => Promise<string>;
+  userId: string;
   userName: string;
   userEmail: string;
   amountPaise: number;
@@ -110,6 +112,7 @@ async function loadRazorpayCheckout() {
 export default function RazorpayCheckout({
   billingStatus,
   getAuthToken,
+  userId,
   userName,
   userEmail,
   amountPaise,
@@ -210,6 +213,15 @@ export default function RazorpayCheckout({
       if (!orderResponse.ok || !order.order_id || !order.amount || !order.currency) {
         throw new Error(order.error ?? "Unable to create Razorpay order.");
       }
+
+      trackEvent("payment_started", {
+        user_id: userId,
+        email: userEmail,
+        order_id: order.order_id,
+        amount_paise: order.amount,
+        currency: order.currency,
+        promo_code: promoCode,
+      });
 
       const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
 

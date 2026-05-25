@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import LandingMapShowcase from "@/app/components/LandingMapShowcase";
+import GetStartedLink from "@/app/components/GetStartedLink";
+import HomepageAnalytics from "@/app/components/HomepageAnalytics";
 import {
   ArrowRight,
   BarChart3,
@@ -242,6 +244,7 @@ export default function LandingPage() {
 
   return (
     <main className="landing-page min-h-dvh overflow-x-hidden bg-[#081225] text-white">
+      <HomepageAnalytics />
       <script
         type="application/ld+json"
         suppressHydrationWarning
@@ -273,12 +276,12 @@ export default function LandingPage() {
             <a href="#pricing" className="transition hover:text-white">Pricing</a>
             <a href="#faq" className="transition hover:text-white">FAQ</a>
           </div>
-          <Link
-            href="/app"
+          <GetStartedLink
+            location="nav"
             className="landing-primary-button rounded-full px-4 py-2 text-sm font-semibold text-white transition hover:-translate-y-0.5"
           >
             Get Started
-          </Link>
+          </GetStartedLink>
         </nav>
       </header>
 
@@ -304,13 +307,13 @@ export default function LandingPage() {
         </div>
 
         <div className="mt-7 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-          <Link
-            href="/app"
+          <GetStartedLink
+            location="hero"
             className="landing-primary-button inline-flex h-12 w-full items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold text-white transition hover:-translate-y-0.5 sm:w-auto"
           >
             Get Started
             <ArrowRight className="size-4" />
-          </Link>
+          </GetStartedLink>
           <a
             href="#features"
             className="landing-secondary-button inline-flex h-12 w-full items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold text-slate-100 transition hover:-translate-y-0.5 sm:w-auto"
@@ -509,9 +512,9 @@ export default function LandingPage() {
                 <li key={item} className="flex gap-2"><CheckCircle2 className="size-4 text-emerald-200" />{item}</li>
               ))}
             </ul>
-            <Link href="/app" className="landing-primary-button mt-7 inline-flex h-12 w-full items-center justify-center rounded-full text-sm font-semibold text-white">
+            <GetStartedLink location="pricing" className="landing-primary-button mt-7 inline-flex h-12 w-full items-center justify-center rounded-full text-sm font-semibold text-white">
               Open RouteVision
-            </Link>
+            </GetStartedLink>
           </article>
         </div>
       </section>
@@ -544,10 +547,10 @@ export default function LandingPage() {
           <p className="mx-auto mt-5 max-w-2xl text-base leading-8 text-slate-300">
             Open RouteVision, create your first lane, and start comparing the route decisions that shape daily operations.
           </p>
-          <Link href="/app" className="landing-primary-button mt-8 inline-flex h-12 items-center justify-center gap-2 rounded-full px-7 text-sm font-semibold text-white">
+          <GetStartedLink location="final_cta" className="landing-primary-button mt-8 inline-flex h-12 items-center justify-center gap-2 rounded-full px-7 text-sm font-semibold text-white">
             Get Started
             <ArrowRight className="size-4" />
-          </Link>
+          </GetStartedLink>
         </div>
       </section>
 

@@ -6,6 +6,7 @@ import {
   isValidRazorpaySignature,
 } from "@/app/lib/razorpayOrder";
 import { normalizeSubscription } from "@/app/lib/subscription";
+import { captureServerEvent } from "@/app/lib/posthog-server";
 
 export const runtime = "nodejs";
 
@@ -148,6 +149,23 @@ export async function POST(request: Request) {
       paymentId: body.razorpay_payment_id,
       paymentStatus: payment.status,
       promoCode: order.notes?.promoCode || null,
+    });
+
+    const paymentProperties = {
+      order_id: body.razorpay_order_id,
+      payment_id: body.razorpay_payment_id,
+      amount_paise: Number(payment.amount),
+      currency: payment.currency,
+      promo_code: order.notes?.promoCode || null,
+      discount_percentage: Number(order.notes?.discountPercentage ?? 0),
+      provider: "razorpay",
+      plan: "pro",
+    };
+
+    captureServerEvent(user.uid, "payment_success", paymentProperties);
+    captureServerEvent(user.uid, "premium_activated", {
+      ...paymentProperties,
+      premium_activated_at: premiumActivatedAt,
     });
 
     return Response.json({ success: true });

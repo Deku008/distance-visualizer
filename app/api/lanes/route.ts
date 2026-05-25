@@ -2,6 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { withFirebaseUser } from "@/app/lib/apiAuth";
 import { getAdminDb } from "@/app/lib/firebaseAdmin";
 import { FREE_LANE_LIMIT, normalizeSubscription } from "@/app/lib/subscription";
+import { captureServerEvent } from "@/app/lib/posthog-server";
 
 export const runtime = "nodejs";
 
@@ -79,6 +80,10 @@ export async function POST(request: Request) {
     });
 
     if (!result.allowed) {
+      captureServerEvent(user.uid, "lane_limit_reached", {
+        lane_count: result.laneCount,
+        free_lane_limit: FREE_LANE_LIMIT,
+      });
       return Response.json(
         {
           error: "Free lane limit reached.",
@@ -91,6 +96,12 @@ export async function POST(request: Request) {
       );
     }
 
+    captureServerEvent(user.uid, "lane_saved", {
+      lane_count: result.laneCount,
+      is_pro: result.subscription.isPro,
+      lane_id: typeof route.id === "number" ? route.id : null,
+      lane_name: typeof route.name === "string" ? route.name : null,
+    });
     return Response.json({
       ok: true,
       subscription: result.subscription,

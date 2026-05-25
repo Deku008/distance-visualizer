@@ -1,6 +1,7 @@
 "use client";
 
 import RazorpayCheckout from "@/app/components/RazorpayCheckout";
+import { identifyUser, resetAnalytics, trackEvent } from "@/app/lib/analytics";
 import { firebaseConfigError, getFirebaseAuth } from "@/app/lib/firebase";
 import {
   deleteUserRoute,
@@ -1052,8 +1053,14 @@ export default function DistanceVisualizer() {
   const openUpgradeModal = useCallback(() => {
     setBillingError(undefined);
     setPromoError(undefined);
+    trackEvent("upgrade_popup_opened", {
+      user_id: user?.uid,
+      email: user?.email,
+      lane_count: routes.length,
+      is_pro: subscription.isPro,
+    });
     setUpgradeModalOpen(true);
-  }, []);
+  }, [routes.length, subscription.isPro, user?.email, user?.uid]);
 
   const resetSignedOutState = useCallback((preserveAuthenticating = false) => {
     setUser(undefined);
@@ -1192,13 +1199,19 @@ export default function DistanceVisualizer() {
       .then((result) => {
         window.sessionStorage.removeItem(AUTH_REDIRECT_PENDING_SESSION_KEY);
 
-        if (result?.user) {
-          setCloudStatus("ready");
-          setCloudError(undefined);
-          showToast("Signed in with Google.", "success");
-        } else if (!auth.currentUser) {
-          setCloudStatus("idle");
-          setCloudError(undefined);
+      if (result?.user) {
+        setCloudStatus("ready");
+        setCloudError(undefined);
+        showToast("Signed in with Google.", "success");
+        trackEvent("google_signin_success", {
+          user_id: result.user.uid,
+          email: result.user.email,
+          sign_in_provider: "google",
+          auth_flow: "redirect",
+        });
+      } else if (!auth.currentUser) {
+        setCloudStatus("idle");
+        setCloudError(undefined);
         }
       })
       .catch((error) => {
@@ -1226,6 +1239,11 @@ export default function DistanceVisualizer() {
         photoURL: firebaseUser.photoURL ?? undefined,
       });
       setAvatarFailed(false);
+      identifyUser({
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        name: firebaseUser.displayName,
+      });
 
       void firebaseUser
         .getIdTokenResult(true)
@@ -1663,6 +1681,15 @@ export default function DistanceVisualizer() {
     setStartLabel(normalizedStartLabel);
     setEndLabel(normalizedEndLabel);
     setRoutes((currentRoutes) => [...currentRoutes, route]);
+    trackEvent("lane_created", {
+      user_id: user.uid,
+      email: user.email,
+      lane_id: route.id,
+      from: route.start.name,
+      to: route.end.name,
+      lane_count: routes.length + 1,
+      is_pro: isPro,
+    });
     setColor(COLORS[(routes.length + 1) % COLORS.length]);
     setSidebarOpen(false);
     setCloudStatus("saving");
@@ -1807,13 +1834,23 @@ export default function DistanceVisualizer() {
       return;
     }
 
+    trackEvent("google_signin_started", {
+      current_user_exists: Boolean(auth.currentUser),
+      auth_provider: "google",
+    });
     setCloudStatus("authenticating");
     setCloudError(undefined);
 
     try {
       await setPersistence(auth, browserLocalPersistence);
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      trackEvent("google_signin_success", {
+        user_id: result.user.uid,
+        email: result.user.email,
+        sign_in_provider: "google",
+        auth_flow: "popup",
+      });
       showToast("Signed in with Google.", "success");
     } catch (error) {
       const message = googleAuthMessage(error);
@@ -1854,6 +1891,11 @@ export default function DistanceVisualizer() {
       setCloudError(undefined);
       setRoutes(INITIAL_ROUTES);
       setLabelSuggestions([]);
+      trackEvent("logout", {
+        user_id: user?.uid,
+        email: user?.email,
+      });
+      resetAnalytics();
       showToast("Signed out.", "info");
     } catch (error) {
       setCloudStatus("error");
@@ -3228,6 +3270,7 @@ export default function DistanceVisualizer() {
                   <RazorpayCheckout
                     billingStatus={billingStatus}
                     getAuthToken={getAuthToken}
+                    userId={user.uid}
                     userName={user.name}
                     userEmail={user.email}
                     amountPaise={checkoutAmountPaise}

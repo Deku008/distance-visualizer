@@ -3,6 +3,7 @@ import { withFirebaseUser } from "@/app/lib/apiAuth";
 import { getAdminDb } from "@/app/lib/firebaseAdmin";
 import { validatePromoCode } from "@/app/lib/promoCodes";
 import { normalizeSubscription } from "@/app/lib/subscription";
+import { captureServerEvent } from "@/app/lib/posthog-server";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,13 @@ export async function POST(request: Request) {
         code: promo.code,
         discountPercentage: promo.discountPercentage,
         finalAmount: promo.finalAmount,
+      });
+
+      captureServerEvent(user.uid, "promo_applied", {
+        promo_code: promo.code,
+        discount_percentage: promo.discountPercentage,
+        final_amount_paise: promo.finalAmount,
+        free_pro: false,
       });
 
       return Response.json(promo);
@@ -121,6 +129,18 @@ export async function POST(request: Request) {
     console.log("[Promo] Free Pro promo activated", {
       uid: user.uid,
       code: promo.code,
+    });
+
+    captureServerEvent(user.uid, "promo_applied", {
+      promo_code: promo.code,
+      discount_percentage: promo.discountPercentage,
+      free_pro: true,
+    });
+    captureServerEvent(user.uid, "premium_activated", {
+      provider: "promo",
+      plan: "pro",
+      promo_code: promo.code,
+      premium_activated_at: premiumActivatedAt,
     });
 
     return Response.json({

@@ -8,6 +8,7 @@ import {
 } from "@/app/lib/razorpayOrder";
 import { validatePromoCode } from "@/app/lib/promoCodes";
 import { normalizeSubscription } from "@/app/lib/subscription";
+import { captureServerEvent } from "@/app/lib/posthog-server";
 
 export const runtime = "nodejs";
 
@@ -98,6 +99,14 @@ export async function POST(request: Request) {
         currency: order.currency,
         promoCode: promo?.code ?? null,
         discountPercentage: promo?.discountPercentage ?? 0,
+      });
+
+      captureServerEvent(user.uid, "razorpay_order_created", {
+        order_id: order.id,
+        amount_paise: order.amount,
+        currency: order.currency,
+        promo_code: promo?.code ?? null,
+        discount_percentage: promo?.discountPercentage ?? 0,
       });
 
       return Response.json({
