@@ -554,10 +554,13 @@ export default function LandingPage() {
       <footer className="border-t border-white/10 px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto flex w-full max-w-[96rem] flex-col gap-4 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between">
           <p>RouteVision. Smart route and lane planning for modern teams.</p>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4">
             <a href="#features" className="hover:text-white">Features</a>
             <a href="#pricing" className="hover:text-white">Pricing</a>
             <Link href="/app" className="hover:text-white">App</Link>
+            <Link href="/privacy" className="hover:text-white">Privacy</Link>
+            <Link href="/terms" className="hover:text-white">Terms</Link>
+            <Link href="/refund" className="hover:text-white">Refunds</Link>
           </div>
         </div>
       </footer>

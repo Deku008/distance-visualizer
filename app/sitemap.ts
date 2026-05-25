@@ -14,6 +14,21 @@ const routes = [
     priority: 0.8,
     images: [ogImage.url],
   },
+  {
+    path: "/privacy",
+    changeFrequency: "monthly",
+    priority: 0.5,
+  },
+  {
+    path: "/terms",
+    changeFrequency: "monthly",
+    priority: 0.5,
+  },
+  {
+    path: "/refund",
+    changeFrequency: "monthly",
+    priority: 0.5,
+  },
 ] satisfies Array<{
   path: string;
   changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"];
