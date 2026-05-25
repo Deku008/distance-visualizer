@@ -1,11 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { absoluteUrl, siteUrl } from "./lib/seo";
+import { homeDescription, homeTitle, ogImage, seoKeywords, siteName, siteUrl } from "./lib/seo";
 import "./globals.css";
-
-const title = "RouteVision";
-const description =
-  "RouteVision is a route analytics and lane planning platform for saving routes, comparing distances, analyzing travel times, and syncing route history across devices.";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,26 +15,17 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  applicationName: title,
+  applicationName: siteName,
   title: {
-    default: "RouteVision | Route Analytics and Lane Planning Platform",
-    template: "%s | RouteVision",
+    default: homeTitle,
+    template: `%s | ${siteName}`,
   },
-  description,
-  keywords: [
-    "RouteVision",
-    "route analytics",
-    "lane planning",
-    "route history",
-    "travel time analytics",
-    "distance comparison",
-    "route planning platform",
-    "fleet route visualization",
-  ],
-  authors: [{ name: "RouteVision" }],
-  creator: "RouteVision",
-  publisher: "RouteVision",
-  category: "Route analytics software",
+  description: homeDescription,
+  keywords: seoKeywords,
+  authors: [{ name: siteName, url: siteUrl }],
+  creator: siteName,
+  publisher: siteName,
+  category: "Route planning software",
   alternates: {
     canonical: siteUrl,
   },
@@ -51,26 +38,19 @@ export const metadata: Metadata = {
     apple: "/apple-icon.png",
   },
   openGraph: {
-    title: "RouteVision | Route Analytics and Lane Planning Platform",
-    description,
+    title: homeTitle,
+    description: homeDescription,
     url: siteUrl,
-    siteName: "RouteVision",
+    siteName,
     type: "website",
     locale: "en_US",
-    images: [
-      {
-        url: absoluteUrl("/opengraph-image"),
-        width: 1200,
-        height: 630,
-        alt: "RouteVision route analytics and lane planning dashboard",
-      },
-    ],
+    images: [ogImage],
   },
   twitter: {
     card: "summary_large_image",
-    title: "RouteVision | Route Analytics and Lane Planning Platform",
-    description,
-    images: [absoluteUrl("/opengraph-image")],
+    title: homeTitle,
+    description: homeDescription,
+    images: [ogImage.url],
   },
   robots: {
     index: true,
@@ -93,9 +73,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      data-scroll-behavior="smooth"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full overflow-hidden">{children}</body>
+      <body className="min-h-full">{children}</body>
     </html>
   );
 }

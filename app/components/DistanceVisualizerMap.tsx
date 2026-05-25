@@ -3189,7 +3189,7 @@ export default function DistanceVisualizer() {
                                   void applyPromoCode();
                                 }
                               }}
-                              placeholder="FREEPRO or 50OFF"
+                              placeholder="Enter promo code"
                               disabled={promoLoading}
                               className="liquid-input h-11 rounded-[1.15rem] px-4 text-sm font-semibold uppercase tracking-[0.08em] text-slate-950 outline-none transition duration-300 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-400/15 disabled:cursor-wait disabled:opacity-60 dark:text-white"
                             />

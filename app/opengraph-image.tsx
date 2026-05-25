@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { homeDescription, siteName } from "./lib/seo";
 
 export const size = {
   width: 1200,
@@ -20,7 +21,7 @@ export default function Image() {
           padding: 72,
           color: "#0f172a",
           background:
-            "linear-gradient(135deg, #f8fbff 0%, #e0f2fe 46%, #ecfdf5 100%)",
+            "radial-gradient(circle at 18% 18%, rgba(14,165,233,0.32), transparent 28%), radial-gradient(circle at 84% 16%, rgba(236,72,153,0.22), transparent 30%), linear-gradient(135deg, #f8fbff 0%, #e0f2fe 42%, #fdf2f8 100%)",
           fontFamily: "Arial",
           position: "relative",
           overflow: "hidden",
@@ -59,7 +60,7 @@ export default function Image() {
                 border: "2px solid rgba(255,255,255,0.92)",
               }}
             />
-            RouteVision
+            {siteName}
           </div>
           <div
             style={{
@@ -70,7 +71,7 @@ export default function Image() {
               maxWidth: 860,
             }}
           >
-            Route analytics and lane planning platform
+            Smart route and lane planning platform
           </div>
           <div
             style={{
@@ -80,7 +81,7 @@ export default function Image() {
               maxWidth: 880,
             }}
           >
-            Save routes, compare distances, analyze travel times, and sync route history across devices.
+            {homeDescription}
           </div>
         </div>
         <div
@@ -93,7 +94,7 @@ export default function Image() {
             fontWeight: 700,
           }}
         >
-          {["Route history", "Analytics", "Lane planning"].map((item) => (
+          {["Route planning", "ETA comparison", "Logistics lanes"].map((item) => (
             <div
               key={item}
               style={{
